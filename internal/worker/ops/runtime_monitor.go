@@ -28,7 +28,7 @@ type metricsRequestsPayload struct {
 }
 
 const (
-	defaultRuntimeMonitorSeconds        = 20
+	defaultRuntimeMonitorSeconds        = 15
 	defaultPauseIdleTimeoutSeconds      = 3600
 	minPauseIdleTimeoutSeconds          = 60
 	maxPauseIdleTimeoutSeconds          = 7 * 24 * 60 * 60
