@@ -166,14 +166,7 @@ func handleServiceDeploy(ctx context.Context, client *http.Client, cfg Config, t
 		if err := promoteRollingTraffic(ctx, cfg, environment, serviceName, logger); err != nil {
 			return err
 		}
-		if err := cleanupStrategyShadowResources(ctx, cfg, environment, serviceName, logger); err != nil {
-			// Shadow cleanup is best-effort and must not break a successful promotion.
-			log.Printf("[worker] rolling cleanup skipped service=%s: %v", serviceName, err)
-			if logger != nil {
-				logger.Logf(ctx, "rolling cleanup skipped: %v", err)
-				logger.Flush(ctx)
-			}
-		}
+		cleanupStrategyShadowsBestEffort(ctx, cfg, environment, serviceName, "rolling", logger)
 	} else if strategyType == "canary" {
 		exposurePercent := contextData.Service.DeploymentStrategy.CanaryPercent
 		if exposurePercent <= 0 {
@@ -283,6 +276,37 @@ func resolveCanaryReadinessTargets(
 	}
 
 	return nextTargets
+}
+
+func cleanupStrategyShadowsBestEffort(
+	ctx context.Context,
+	cfg Config,
+	environment string,
+	serviceName string,
+	strategyType string,
+	logger *deployLogger,
+) {
+	serviceName = strings.TrimSpace(serviceName)
+	if serviceName == "" {
+		return
+	}
+	namespace := resolveNamespace(cfg, environment)
+	kubeHTTP, kubeToken, err := kubeClient()
+	if err != nil {
+		log.Printf("[worker] strategy shadow cleanup skipped service=%s: %v", serviceName, err)
+		if logger != nil {
+			logger.Logf(ctx, "strategy shadow cleanup skipped: %v", err)
+			logger.Flush(ctx)
+		}
+		return
+	}
+	if err := cleanupUnusedStrategyWorkloads(ctx, kubeHTTP, kubeToken, namespace, serviceName, strategyType, logger); err != nil {
+		log.Printf("[worker] strategy shadow cleanup skipped service=%s: %v", serviceName, err)
+		if logger != nil {
+			logger.Logf(ctx, "strategy shadow cleanup skipped: %v", err)
+			logger.Flush(ctx)
+		}
+	}
 }
 
 func buildAndPushImageFull(

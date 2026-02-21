@@ -187,33 +187,6 @@ func reconcileStrategyResources(
 	return applyServiceWorkloadResources(ctx, client, token, namespace, serviceName, resources, ctxData.Service, logger)
 }
 
-func cleanupStrategyShadowResources(
-	ctx context.Context,
-	cfg Config,
-	environment string,
-	serviceName string,
-	logger *deployLogger,
-) error {
-	serviceName = strings.TrimSpace(serviceName)
-	if serviceName == "" {
-		return nil
-	}
-	namespace := resolveNamespace(cfg, environment)
-	client, token, err := kubeClient()
-	if err != nil {
-		return err
-	}
-	if err := cleanupUnusedStrategyWorkloads(ctx, client, token, namespace, serviceName, "rolling", logger); err != nil {
-		// Cleanup is best-effort and must not fail an otherwise healthy rollout.
-		log.Printf("[worker] strategy shadow cleanup skipped service=%s: %v", serviceName, err)
-		if logger != nil {
-			logger.Logf(ctx, "strategy shadow cleanup skipped: %v", err)
-			logger.Flush(ctx)
-		}
-	}
-	return nil
-}
-
 func filterStrategyWorkloadResources(resources []map[string]interface{}, serviceName string) []map[string]interface{} {
 	filtered := make([]map[string]interface{}, 0, 2)
 	serviceName = strings.TrimSpace(serviceName)
