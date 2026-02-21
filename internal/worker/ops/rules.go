@@ -103,6 +103,7 @@ func handleRuleDeploy(ctx context.Context, client *http.Client, cfg Config, toke
 		return err
 	}
 	service = normalizeRuleDeployStrategyForAvailability(ctx, kubeClient, kubeToken, namespace, serviceName, service, logger)
+	service = applyRuleDeployStrategyOverride(service, op.Payload)
 	vs := buildRuleVirtualService(rule, service, serviceName, namespace, cfg, gateways)
 	log.Printf("[worker] rule.deploy rule=%s env=%s namespace=%s action=apply vs=%s gateways=%v", rule.ID, environment, namespace, vsName, gateways)
 	if logger != nil {
@@ -217,4 +218,22 @@ func fetchService(ctx context.Context, client *http.Client, cfg Config, tokens *
 		"service fetch",
 	)
 	return service, err
+}
+
+func applyRuleDeployStrategyOverride(service servicePayload, payload map[string]interface{}) servicePayload {
+	if payload == nil || !strings.EqualFold(strings.TrimSpace(service.DeploymentStrategy.Type), "canary") {
+		return service
+	}
+	if _, ok := payload["canaryPercentOverride"]; !ok {
+		return service
+	}
+	override := payloadInt(payload, "canaryPercentOverride")
+	if override < 0 {
+		override = 0
+	}
+	if override > 50 {
+		override = 50
+	}
+	service.DeploymentStrategy.CanaryPercent = override
+	return service
 }
