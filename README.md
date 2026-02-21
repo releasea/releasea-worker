@@ -44,7 +44,7 @@ go run ./cmd/main.go
 |---|---|---|
 | `WORKER_POLL_SECONDS` | Polling interval for operation fetch loop | `20` |
 | `WORKER_POLL_LIMIT` | Max operations fetched per polling cycle | `10` |
-| `WORKER_RUNTIME_SECONDS` | Runtime monitor interval | `20` |
+| `WORKER_RUNTIME_SECONDS` | Runtime monitor interval | `5` |
 | `WORKER_DESIRED_AGENTS` | Fallback desired agent count | `0` |
 
 ### Deploy Execution
