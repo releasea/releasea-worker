@@ -23,6 +23,14 @@ type scmCommitEntry struct {
 	Sha string `json:"sha"`
 }
 
+type autoDeployQueueResponse struct {
+	Deploy struct {
+		Commit string `json:"commit"`
+	} `json:"deploy"`
+	Queued                *bool `json:"queued"`
+	BlockedByActiveDeploy bool  `json:"blockedByActiveDeploy"`
+}
+
 type autoDeployState struct {
 	blocking bool
 	commits  map[string]struct{}
@@ -158,9 +166,13 @@ func runAutoDeployCycle(
 			continue
 		}
 
-		if err := queueAutoDeploy(ctx, client, cfg, tokens, service.ID, environment, latestCommit); err != nil {
+		queued, err := queueAutoDeploy(ctx, client, cfg, tokens, service.ID, environment, latestCommit)
+		if err != nil {
 			runtime.markServiceCooldown(service.ID, now.Add(resolveAutoDeployQueueErrorCooldown(interval)))
 			log.Printf("[worker] auto deploy queue failed service=%s commit=%s: %v", service.ID, latestCommit, err)
+			continue
+		}
+		if !queued {
 			continue
 		}
 		runtime.markQueued(queueKey, now.Add(resolveAutoDeployRecentQueueTTL(interval)))
@@ -433,7 +445,7 @@ func queueAutoDeploy(
 	serviceID string,
 	environment string,
 	commit string,
-) error {
+) (bool, error) {
 	payload := map[string]string{
 		"environment": environment,
 		"version":     commit,
@@ -441,11 +453,12 @@ func queueAutoDeploy(
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	endpoint := fmt.Sprintf("%s/services/%s/deploys", cfg.ApiBaseURL, serviceID)
-	return doJSONRequest(
+	var response autoDeployQueueResponse
+	if err := doJSONRequest(
 		ctx,
 		client,
 		cfg,
@@ -453,9 +466,26 @@ func queueAutoDeploy(
 		http.MethodPost,
 		endpoint,
 		body,
-		nil,
+		&response,
 		"auto deploy",
-	)
+	); err != nil {
+		return false, err
+	}
+
+	requestedCommit := normalizeCommitSHA(commit)
+	responseCommit := normalizeCommitSHA(response.Deploy.Commit)
+	if requestedCommit == "" {
+		return true, nil
+	}
+	if responseCommit == "" {
+		return true, nil
+	}
+	if responseCommit != requestedCommit {
+		if response.BlockedByActiveDeploy || (response.Queued != nil && !*response.Queued) {
+			return false, nil
+		}
+	}
+	return responseCommit == requestedCommit, nil
 }
 
 func parseGitHubRepository(rawURL string) (string, string, bool) {
