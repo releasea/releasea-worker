@@ -141,6 +141,9 @@ func handleServiceDeploy(ctx context.Context, client *http.Client, cfg Config, t
 	reportStrategy(deployStatusValidating, "Validating application health", nil)
 	namespace := resolveDeployNamespaceFromPayload(op.Payload, resolveNamespace(cfg, environment))
 	targets := resolveDeployReadinessTargets(contextData.Service, serviceName, op.Payload)
+	if strategyType == "canary" {
+		targets = resolveCanaryReadinessTargets(ctx, cfg, namespace, serviceName, targets, logger)
+	}
 	if strategyType == "blue-green" && serviceName != "" {
 		_, candidateSlot := resolveBlueGreenSlots(contextData.Service.DeploymentStrategy.BlueGreenPrimary)
 		if candidateSlot != "" {
@@ -162,6 +165,14 @@ func handleServiceDeploy(ctx context.Context, client *http.Client, cfg Config, t
 	if strategyType == "rolling" {
 		if err := promoteRollingTraffic(ctx, cfg, environment, serviceName, logger); err != nil {
 			return err
+		}
+		if err := cleanupStrategyShadowResources(ctx, cfg, environment, serviceName, logger); err != nil {
+			// Shadow cleanup is best-effort and must not break a successful promotion.
+			log.Printf("[worker] rolling cleanup skipped service=%s: %v", serviceName, err)
+			if logger != nil {
+				logger.Logf(ctx, "rolling cleanup skipped: %v", err)
+				logger.Flush(ctx)
+			}
 		}
 	} else if strategyType == "canary" {
 		exposurePercent := contextData.Service.DeploymentStrategy.CanaryPercent
@@ -204,6 +215,74 @@ func handleServiceDeploy(ctx context.Context, client *http.Client, cfg Config, t
 		log.Printf("[worker] post-deploy runtime sync failed service=%s env=%s: %v", op.Resource, environment, err)
 	}
 	return nil
+}
+
+func resolveCanaryReadinessTargets(
+	ctx context.Context,
+	cfg Config,
+	namespace string,
+	serviceName string,
+	targets []string,
+	logger *deployLogger,
+) []string {
+	serviceName = strings.TrimSpace(serviceName)
+	if serviceName == "" || len(targets) == 0 {
+		return targets
+	}
+
+	hasStableTarget := false
+	for _, target := range targets {
+		if strings.TrimSpace(target) == serviceName {
+			hasStableTarget = true
+			break
+		}
+	}
+	if !hasStableTarget {
+		return targets
+	}
+
+	kubeHTTP, kubeToken, err := kubeClient()
+	if err != nil {
+		return targets
+	}
+
+	stableExists, err := resourceExists(ctx, kubeHTTP, kubeToken, "apps/v1", "Deployment", namespace, serviceName)
+	if err != nil || stableExists {
+		return targets
+	}
+
+	canonicalService, err := fetchResourceAsMap(ctx, kubeHTTP, kubeToken, "v1", "Service", namespace, serviceName)
+	if err != nil {
+		return targets
+	}
+	spec := mapValue(canonicalService["spec"])
+	selector := mapValue(spec["selector"])
+	canonicalTarget := strings.TrimSpace(stringValue(selector, "app"))
+	if canonicalTarget == "" || canonicalTarget == serviceName {
+		return targets
+	}
+
+	canonicalDeploymentExists, err := resourceExists(ctx, kubeHTTP, kubeToken, "apps/v1", "Deployment", namespace, canonicalTarget)
+	if err != nil || !canonicalDeploymentExists {
+		return targets
+	}
+
+	nextTargets := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if strings.TrimSpace(target) == serviceName {
+			nextTargets = append(nextTargets, canonicalTarget)
+			continue
+		}
+		nextTargets = append(nextTargets, target)
+	}
+	nextTargets = uniqueStrings(nextTargets)
+
+	if logger != nil {
+		logger.Logf(ctx, "canary readiness: using %s as stable target while canonical traffic remains on it", canonicalTarget)
+		logger.Flush(ctx)
+	}
+
+	return nextTargets
 }
 
 func buildAndPushImageFull(

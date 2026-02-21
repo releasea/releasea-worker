@@ -89,7 +89,8 @@ func reconcileStrategyResources(
 ) error {
 	strategyType := resolveDeployStrategyType(ctxData.Service)
 	if strategyType == "rolling" {
-		return cleanupStrategyShadowResources(ctx, cfg, environment, serviceName, logger)
+		// Rolling cleanup must happen only after canonical promotion succeeds.
+		return nil
 	}
 
 	namespace := resolveNamespace(cfg, environment)

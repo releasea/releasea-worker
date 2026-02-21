@@ -118,20 +118,27 @@ func applyCanaryWorkloadResources(
 	}
 
 	if !stableExists {
-		// First canary deploy: no previous version. Apply both stable and canary with the new version.
-		stableService := cloneResource(baseService, deps)
-		RetargetService(stableService, serviceName, serviceName)
-		if err := deps.ApplyResourceFn(ctx, client, token, stableService); err != nil {
-			return err
-		}
-		stableDeployment := cloneResource(baseDeployment, deps)
-		RetargetDeployment(stableDeployment, serviceName, serviceName, resolveDesiredReplicas(service))
-		setDeploymentRollingStrategy(stableDeployment)
-		if err := deps.ApplyResourceFn(ctx, client, token, stableDeployment); err != nil {
-			return err
-		}
-		if logger != nil {
-			logger.Logf(ctx, "canary first deploy: stable %s created with new version", serviceName)
+		canonicalTarget := resolveCanonicalServiceSelector(ctx, client, token, namespace, serviceName, deps)
+		preserveCurrentStable := canonicalTarget != "" && canonicalTarget != serviceName
+		if !preserveCurrentStable {
+			// First canary deploy: no previous version. Apply both stable and canary with the new version.
+			stableService := cloneResource(baseService, deps)
+			RetargetService(stableService, serviceName, serviceName)
+			if err := deps.ApplyResourceFn(ctx, client, token, stableService); err != nil {
+				return err
+			}
+			stableDeployment := cloneResource(baseDeployment, deps)
+			RetargetDeployment(stableDeployment, serviceName, serviceName, resolveDesiredReplicas(service))
+			setDeploymentRollingStrategy(stableDeployment)
+			if err := deps.ApplyResourceFn(ctx, client, token, stableDeployment); err != nil {
+				return err
+			}
+			if logger != nil {
+				logger.Logf(ctx, "canary first deploy: stable %s created with new version", serviceName)
+				logger.Flush(ctx)
+			}
+		} else if logger != nil {
+			logger.Logf(ctx, "canary transition: preserving stable traffic on %s while deploying canary", canonicalTarget)
 			logger.Flush(ctx)
 		}
 	}
@@ -163,6 +170,26 @@ func applyCanaryWorkloadResources(
 		logger.Flush(ctx)
 	}
 	return nil
+}
+
+func resolveCanonicalServiceSelector(
+	ctx context.Context,
+	client *http.Client,
+	token string,
+	namespace string,
+	serviceName string,
+	deps Dependencies,
+) string {
+	if deps.FetchResourceFn == nil {
+		return ""
+	}
+	canonicalService, err := deps.FetchResourceFn(ctx, client, token, "v1", "Service", namespace, serviceName)
+	if err != nil || len(canonicalService) == 0 {
+		return ""
+	}
+	spec := commonvalues.MapValue(canonicalService["spec"])
+	selector := commonvalues.MapValue(spec["selector"])
+	return strings.TrimSpace(commonvalues.StringValue(selector, "app"))
 }
 
 func applyBlueGreenWorkloadResources(
