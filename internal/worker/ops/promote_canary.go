@@ -70,12 +70,22 @@ func handlePromoteCanary(ctx context.Context, client *http.Client, cfg Config, t
 	if err := applyResource(ctx, kubeClient, kubeToken, stableService); err != nil {
 		return fmt.Errorf("apply stable service: %w", err)
 	}
-	if err := deleteResource(ctx, kubeClient, kubeToken, "apps/v1", "Deployment", namespace, canaryName); err != nil {
-		log.Printf("[worker] promote canary: delete canary deployment warning: %v", err)
+
+	if err := waitForServiceDeployReadiness(
+		ctx,
+		cfg,
+		environment,
+		namespace,
+		serviceName,
+		[]string{serviceName},
+		contextData.Service,
+		nil,
+	); err != nil {
+		return fmt.Errorf("stable target not ready after canary promote: %w", err)
 	}
-	if err := deleteResource(ctx, kubeClient, kubeToken, "v1", "Service", namespace, canaryName); err != nil {
-		log.Printf("[worker] promote canary: delete canary service warning: %v", err)
-	}
+
+	// Cleanup only when canary is no longer referenced by active traffic.
+	cleanupStrategyShadowsBestEffort(ctx, cfg, environment, serviceName, "rolling", nil)
 	log.Printf("[worker] promote canary: completed for service=%s env=%s", op.Resource, environment)
 	return nil
 }
