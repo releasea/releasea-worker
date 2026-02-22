@@ -1,6 +1,7 @@
 # ──────────────────────── build stage ──────────────────────────────
-FROM golang:1.24-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
 ARG BUILDX_VERSION=0.24.0
+ARG TARGETOS
 ARG TARGETARCH
 RUN apk add --no-cache git curl
 WORKDIR /src
@@ -8,13 +9,36 @@ WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} go build -trimpath -ldflags="-s -w" -o /out/releasea-worker ./cmd/main.go
+RUN arch="${TARGETARCH:-}"; \
+    if [ -z "${arch}" ]; then \
+      case "$(uname -m)" in \
+        aarch64|arm64) arch="arm64" ;; \
+        x86_64|amd64) arch="amd64" ;; \
+        *) arch="$(go env GOARCH)" ;; \
+      esac; \
+    fi; \
+    CGO_ENABLED=0 GOOS="${TARGETOS:-linux}" GOARCH="${arch}" \
+      go build -trimpath -ldflags="-s -w" -o /out/releasea-worker ./cmd/main.go
 RUN mkdir -p /out/cli-plugins && \
-    case "${TARGETARCH:-amd64}" in arm64) arch="arm64" ;; *) arch="amd64" ;; esac && \
+    arch="${TARGETARCH:-}" && \
+    if [ -z "${arch}" ]; then \
+      case "$(uname -m)" in \
+        aarch64|arm64) arch="arm64" ;; \
+        x86_64|amd64) arch="amd64" ;; \
+        *) arch="amd64" ;; \
+      esac; \
+    fi && \
     curl -fsSL -o /out/cli-plugins/docker-buildx \
       "https://github.com/docker/buildx/releases/download/v${BUILDX_VERSION}/buildx-v${BUILDX_VERSION}.linux-${arch}" && \
     chmod +x /out/cli-plugins/docker-buildx
-RUN case "${TARGETARCH:-amd64}" in arm64) arch="arm64" ;; *) arch="amd64" ;; esac && \
+RUN arch="${TARGETARCH:-}" && \
+    if [ -z "${arch}" ]; then \
+      case "$(uname -m)" in \
+        aarch64|arm64) arch="arm64" ;; \
+        x86_64|amd64) arch="amd64" ;; \
+        *) arch="amd64" ;; \
+      esac; \
+    fi && \
     curl -fsSL -o /out/mc "https://dl.min.io/client/mc/release/linux-${arch}/mc" && \
     chmod +x /out/mc
 
