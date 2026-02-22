@@ -90,37 +90,6 @@ func scaleDeployment(ctx context.Context, deploymentNamespace, deploymentName st
 	return nil
 }
 
-func handleServiceScale(ctx context.Context, cfg Config, op operationPayload) error {
-	environment := payloadString(op.Payload, "environment")
-	if environment == "" {
-		environment = "prod"
-	}
-	namespace := resolveNamespace(cfg, environment)
-	if err := validateAppNamespace(namespace); err != nil {
-		return fmt.Errorf("service scale blocked: %w", err)
-	}
-
-	serviceName := toKubeName(op.ServiceName)
-	if serviceName == "" {
-		serviceName = toKubeName(op.Resource)
-	}
-	if serviceName == "" {
-		return errors.New("service name invalid")
-	}
-
-	replicas := payloadInt(op.Payload, "replicas")
-	if replicas < 0 {
-		replicas = 0
-	}
-
-	cpu := payloadInt(op.Payload, "cpu")
-	memory := payloadInt(op.Payload, "memory")
-	if cpu > 0 && memory > 0 {
-		return scaleDeploymentWithResources(ctx, namespace, serviceName, replicas, cpu, memory)
-	}
-
-	return scaleDeployment(ctx, namespace, serviceName, replicas)
-}
 
 func scaleDeploymentWithResources(ctx context.Context, namespace, name string, replicas, cpu, memory int) error {
 	if name == "" || namespace == "" {
@@ -204,23 +173,3 @@ func patchDeployment(
 	return client.Do(req)
 }
 
-func handleServiceRestart(ctx context.Context, cfg Config, op operationPayload) error {
-	environment := payloadString(op.Payload, "environment")
-	if environment == "" {
-		environment = "prod"
-	}
-	namespace := resolveNamespace(cfg, environment)
-	if err := validateAppNamespace(namespace); err != nil {
-		return fmt.Errorf("service restart blocked: %w", err)
-	}
-
-	serviceName := toKubeName(op.ServiceName)
-	if serviceName == "" {
-		serviceName = toKubeName(op.Resource)
-	}
-	if serviceName == "" {
-		return errors.New("service name invalid")
-	}
-
-	return restartDeploymentByName(ctx, namespace, serviceName)
-}

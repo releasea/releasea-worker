@@ -11,8 +11,6 @@ type operationExecutor func(ctx context.Context, client *http.Client, cfg Config
 var operationExecutors = map[string]operationExecutor{
 	"service.deploy":         handleServiceDeploy,
 	"service.promote-canary": handlePromoteCanary,
-	"service.scale":          executeServiceScale,
-	"service.restart":        executeServiceRestart,
 	"service.delete":         handleServiceDelete,
 	"rule.deploy":            handleRuleDeploy,
 	"rule.publish":           handleRuleDeploy,
@@ -28,14 +26,6 @@ func executeOperation(ctx context.Context, client *http.Client, cfg Config, toke
 		return nil
 	}
 	return executor(ctx, client, cfg, tokens, op)
-}
-
-func executeServiceScale(ctx context.Context, _ *http.Client, cfg Config, _ *tokenManager, op operationPayload) error {
-	return handleServiceScale(ctx, cfg, op)
-}
-
-func executeServiceRestart(ctx context.Context, _ *http.Client, cfg Config, _ *tokenManager, op operationPayload) error {
-	return handleServiceRestart(ctx, cfg, op)
 }
 
 func executeWorkerRestart(ctx context.Context, _ *http.Client, cfg Config, _ *tokenManager, op operationPayload) error {
