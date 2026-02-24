@@ -4,6 +4,9 @@ import (
 	"strings"
 
 	commonenv "releaseaworker/common/env"
+	commonsource "releaseaworker/common/source"
+	commonstr "releaseaworker/common/strutil"
+	commonvalues "releaseaworker/common/values"
 	"releaseaworker/namespaces"
 )
 
@@ -37,54 +40,27 @@ func normalizeNamespace(value string) string {
 }
 
 func toKubeName(value string) string {
-	value = strings.TrimSpace(strings.ToLower(value))
-	value = strings.ReplaceAll(value, "_", "-")
-	value = strings.ReplaceAll(value, " ", "-")
-	value = strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			return r
-		}
-		return '-'
-	}, value)
-	value = strings.Trim(value, "-")
-	for strings.Contains(value, "--") {
-		value = strings.ReplaceAll(value, "--", "-")
-	}
-	return value
+	return commonstr.ToKubeName(value)
 }
 
 func uniqueStrings(values []string) []string {
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(values))
-	for _, value := range values {
-		trimmed := strings.TrimSpace(value)
-		if trimmed == "" {
-			continue
-		}
-		if _, ok := seen[trimmed]; ok {
-			continue
-		}
-		seen[trimmed] = struct{}{}
-		out = append(out, trimmed)
-	}
-	return out
+	return commonstr.UniqueStrings(values)
 }
 
 func hasHostSuffix(hosts []string, suffix string) bool {
-	suffix = strings.TrimSpace(suffix)
-	if suffix == "" {
-		return false
-	}
-	for _, host := range hosts {
-		trimmed := strings.TrimSpace(host)
-		if trimmed == "" {
-			continue
-		}
-		if strings.HasSuffix(trimmed, suffix) {
-			return true
-		}
-	}
-	return false
+	return commonstr.HasHostSuffix(hosts, suffix)
+}
+
+func normalizeSourceType(sourceType string) string {
+	return commonsource.NormalizeType(sourceType)
+}
+
+func mapValue(value interface{}) map[string]interface{} {
+	return commonvalues.MapValue(value)
+}
+
+func stringValue(source map[string]interface{}, key string) string {
+	return commonvalues.StringValue(source, key)
 }
 
 func envInt(key string, fallback int) int {

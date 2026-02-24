@@ -1,4 +1,4 @@
-package scm
+package integrations
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+
+	commonsource "releaseaworker/common/source"
 )
 
 const (
@@ -50,7 +52,7 @@ func DeleteManagedRepository(ctx context.Context, client *http.Client, input Del
 	if repoURL == "" {
 		return nil
 	}
-	if normalizeSourceType(input.SourceType) == "registry" {
+	if commonsource.NormalizeType(input.SourceType) == "registry" {
 		return nil
 	}
 
@@ -91,17 +93,6 @@ func DeleteManagedRepository(ctx context.Context, client *http.Client, input Del
 		return deleteBitbucketRepo(ctx, client, token, repo)
 	default:
 		return fmt.Errorf("SCM provider %s not supported for repository delete", provider)
-	}
-}
-
-func normalizeSourceType(value string) string {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "registry", "docker":
-		return "registry"
-	case "git":
-		return "git"
-	default:
-		return ""
 	}
 }
 
