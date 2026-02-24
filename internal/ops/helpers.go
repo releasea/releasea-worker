@@ -1,11 +1,10 @@
 package ops
 
 import (
-	"os"
-	"strconv"
 	"strings"
 
-	"releaseaworker/internal/worker/namespaces"
+	commonenv "releaseaworker/internal/common/env"
+	"releaseaworker/internal/namespaces"
 )
 
 func resolvePort(value int) int {
@@ -89,13 +88,5 @@ func hasHostSuffix(hosts []string, suffix string) bool {
 }
 
 func envInt(key string, fallback int) int {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
-	}
-	parsed, err := strconv.Atoi(value)
-	if err != nil {
-		return fallback
-	}
-	return parsed
+	return commonenv.Int(key, fallback)
 }

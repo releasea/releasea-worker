@@ -90,65 +90,6 @@ func scaleDeployment(ctx context.Context, deploymentNamespace, deploymentName st
 	return nil
 }
 
-
-func scaleDeploymentWithResources(ctx context.Context, namespace, name string, replicas, cpu, memory int) error {
-	if name == "" || namespace == "" {
-		return errors.New("deployment metadata missing")
-	}
-	if replicas < 0 {
-		replicas = 0
-	}
-
-	client, token, err := kubeClient()
-	if err != nil {
-		return err
-	}
-
-	resourceSpec := map[string]interface{}{
-		"requests": map[string]interface{}{
-			"cpu":    fmt.Sprintf("%dm", cpu),
-			"memory": fmt.Sprintf("%dMi", memory),
-		},
-		"limits": map[string]interface{}{
-			"cpu":    fmt.Sprintf("%dm", cpu),
-			"memory": fmt.Sprintf("%dMi", memory),
-		},
-	}
-
-	patch := map[string]interface{}{
-		"spec": map[string]interface{}{
-			"replicas": replicas,
-			"template": map[string]interface{}{
-				"metadata": map[string]interface{}{
-					"annotations": map[string]string{
-						"releasea.io/resource-revision": time.Now().UTC().Format(time.RFC3339Nano),
-					},
-				},
-				"spec": map[string]interface{}{
-					"containers": []interface{}{
-						map[string]interface{}{
-							"name":      name,
-							"resources": resourceSpec,
-						},
-					},
-				},
-			},
-		},
-	}
-	resp, err := patchDeployment(ctx, client, token, namespace, name, patch, "application/strategic-merge-patch+json")
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return errDeploymentNotFound
-	}
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("kubernetes api error: %s", resp.Status)
-	}
-	return nil
-}
-
 func patchDeployment(
 	ctx context.Context,
 	client *http.Client,
@@ -172,4 +113,3 @@ func patchDeployment(
 	req.Header.Set("Content-Type", contentType)
 	return client.Do(req)
 }
-

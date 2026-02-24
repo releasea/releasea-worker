@@ -1,4 +1,4 @@
-package ops
+package scm
 
 import (
 	"context"
@@ -16,6 +16,14 @@ const (
 	releaseaManagedBy         = "releasea-platform"
 	releaseaManagedMarkerPath = ".releasea/managed.json"
 )
+
+type DeleteInput struct {
+	RepoURL     string
+	SourceType  string
+	Provider    string
+	Token       string
+	RepoManaged bool
+}
 
 type repoRef struct {
 	Host  string
@@ -37,13 +45,12 @@ type githubError struct {
 	Message string `json:"message"`
 }
 
-func deleteManagedRepository(ctx context.Context, client *http.Client, scm *scmCredential, svc serviceConfig) error {
-	repoURL := strings.TrimSpace(svc.RepoURL)
+func DeleteManagedRepository(ctx context.Context, client *http.Client, input DeleteInput) error {
+	repoURL := strings.TrimSpace(input.RepoURL)
 	if repoURL == "" {
 		return nil
 	}
-	sourceType := normalizeSourceType(svc.SourceType)
-	if sourceType == "registry" {
+	if normalizeSourceType(input.SourceType) == "registry" {
 		return nil
 	}
 
@@ -52,17 +59,15 @@ func deleteManagedRepository(ctx context.Context, client *http.Client, scm *scmC
 		return nil
 	}
 
-	provider := ""
-	if scm != nil {
-		provider = strings.ToLower(strings.TrimSpace(scm.Provider))
-	}
+	provider := strings.ToLower(strings.TrimSpace(input.Provider))
 	if provider == "" {
 		provider = inferProvider(repo.Host)
 	}
 
-	managed := svc.RepoManaged
+	token := strings.TrimSpace(input.Token)
+	managed := input.RepoManaged
 	if provider == "github" {
-		ok, err := githubHasReleaseaMarker(ctx, client, scm, repo)
+		ok, err := githubHasReleaseaMarker(ctx, client, token, repo)
 		if err != nil {
 			return err
 		}
@@ -72,11 +77,6 @@ func deleteManagedRepository(ctx context.Context, client *http.Client, scm *scmC
 	}
 	if !managed {
 		return nil
-	}
-
-	token := ""
-	if scm != nil {
-		token = strings.TrimSpace(scm.Token)
 	}
 	if token == "" {
 		return errors.New("SCM credential missing token for repository delete")
@@ -91,6 +91,17 @@ func deleteManagedRepository(ctx context.Context, client *http.Client, scm *scmC
 		return deleteBitbucketRepo(ctx, client, token, repo)
 	default:
 		return fmt.Errorf("SCM provider %s not supported for repository delete", provider)
+	}
+}
+
+func normalizeSourceType(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "registry", "docker":
+		return "registry"
+	case "git":
+		return "git"
+	default:
+		return ""
 	}
 }
 
@@ -148,18 +159,15 @@ func buildRepoRef(host, path string) (repoRef, error) {
 	}, nil
 }
 
-func githubHasReleaseaMarker(ctx context.Context, client *http.Client, scm *scmCredential, repo repoRef) (bool, error) {
-	if scm == nil {
-		return false, nil
-	}
-	token := strings.TrimSpace(scm.Token)
+func githubHasReleaseaMarker(ctx context.Context, client *http.Client, token string, repo repoRef) (bool, error) {
+	token = strings.TrimSpace(token)
 	if token == "" {
 		return false, nil
 	}
 	base := githubAPIBase(repo.Host)
 	path := escapeGithubPath(releaseaManagedMarkerPath)
-	url := fmt.Sprintf("%s/repos/%s/%s/contents/%s", base, repo.Owner, repo.Name, path)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/contents/%s", base, repo.Owner, repo.Name, path)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return false, err
 	}

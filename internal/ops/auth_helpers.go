@@ -5,7 +5,7 @@ import (
 	"errors"
 	"net/http"
 
-	"releaseaworker/internal/worker/auth"
+	"releaseaworker/internal/auth"
 )
 
 type tokenManager struct {
