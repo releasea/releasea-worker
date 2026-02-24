@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"releaseaworker/internal/config"
-	"releaseaworker/internal/ops"
+	"releaseaworker/config"
+	operations "releaseaworker/operations"
 )
 
 func main() {
@@ -24,7 +24,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	err := ops.Run(ctx, cfg)
+	err := operations.Run(ctx, cfg)
 	if err != nil {
 		log.Fatalf("[worker] exited with error: %v", err)
 	}
