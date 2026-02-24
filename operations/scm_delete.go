@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	scm "releaseaworker/integrations/scm"
+	"releaseaworker/integrations"
 )
 
 func deleteManagedRepository(ctx context.Context, client *http.Client, cred *scmCredential, svc serviceConfig) error {
@@ -16,7 +16,7 @@ func deleteManagedRepository(ctx context.Context, client *http.Client, cred *scm
 		token = strings.TrimSpace(cred.Token)
 	}
 
-	return scm.DeleteManagedRepository(ctx, client, scm.DeleteInput{
+	return integrations.DeleteManagedRepository(ctx, client, integrations.DeleteInput{
 		RepoURL:     svc.RepoURL,
 		SourceType:  svc.SourceType,
 		Provider:    provider,

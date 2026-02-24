@@ -1,8 +1,8 @@
-package operations
+package source
 
 import "strings"
 
-func normalizeSourceType(sourceType string) string {
+func NormalizeType(sourceType string) string {
 	switch strings.ToLower(strings.TrimSpace(sourceType)) {
 	case "registry", "docker":
 		return "registry"
