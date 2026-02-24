@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"releaseaworker/internal/worker/common/deploystrategy"
+	"releaseaworker/internal/common/deploystrategy"
 )
 
 const (

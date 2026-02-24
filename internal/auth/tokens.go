@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"releaseaworker/internal/worker/config"
+	"releaseaworker/internal/config"
 )
 
 type Manager struct {

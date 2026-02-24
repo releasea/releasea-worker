@@ -108,19 +108,9 @@ func isValidAppNamespace(namespace string) bool {
 	}
 }
 
-// IsValidAppNamespace reports whether the namespace is one of the allowed app namespaces.
-func IsValidAppNamespace(namespace string) bool {
-	return isValidAppNamespace(namespace)
-}
-
 // isSystemNamespace returns true if the namespace is the reserved system namespace.
 func isSystemNamespace(namespace string) bool {
 	return strings.TrimSpace(strings.ToLower(namespace)) == NamespaceSystem
-}
-
-// IsSystemNamespace reports whether the namespace is the reserved system namespace.
-func IsSystemNamespace(namespace string) bool {
-	return isSystemNamespace(namespace)
 }
 
 // validateAppNamespace checks that a computed namespace is safe for app workloads.

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	strategyworker "releaseaworker/internal/worker/ops/strategy"
+	strategyworker "releaseaworker/internal/ops/strategy"
 )
 
 func applyServiceWorkloadResources(
