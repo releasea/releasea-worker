@@ -2,6 +2,8 @@ package worker
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	backgroundmodule "releaseaworker/internal/background"
@@ -14,7 +16,9 @@ import (
 
 type operationExecutor func(ctx context.Context, client *http.Client, cfg models.Config, tokens *platform.TokenManager, op models.OperationPayload) error
 
-var operationExecutors = map[string]operationExecutor{
+var ErrUnsupportedOperationType = errors.New("unsupported operation type")
+
+var defaultOperationExecutors = map[string]operationExecutor{
 	"service.deploy":         executeServiceDeploy,
 	"service.promote-canary": deploymodule.HandlePromoteCanary,
 	"service.delete":         deploymodule.HandleServiceDelete,
@@ -25,11 +29,9 @@ var operationExecutors = map[string]operationExecutor{
 }
 
 func executeOperation(ctx context.Context, client *http.Client, cfg models.Config, tokens *platform.TokenManager, op models.OperationPayload) error {
-	executor, ok := operationExecutors[op.Type]
+	executor, ok := defaultOperationExecutors[op.Type]
 	if !ok {
-		// Preserve previous behavior for unknown operation types.
-		time.Sleep(1 * time.Second)
-		return nil
+		return fmt.Errorf("%w: %s", ErrUnsupportedOperationType, op.Type)
 	}
 	return executor(ctx, client, cfg, tokens, op)
 }
@@ -46,7 +48,7 @@ func executeServiceDeploy(ctx context.Context, client *http.Client, cfg models.C
 	if environment == "" {
 		environment = "prod"
 	}
-	runtimeSyncCtx, cancelRuntimeSync := context.WithTimeout(context.Background(), 20*time.Second)
+	runtimeSyncCtx, cancelRuntimeSync := context.WithTimeout(ctx, 20*time.Second)
 	defer cancelRuntimeSync()
 	if err := backgroundmodule.UpdateRuntimeStatuses(runtimeSyncCtx, client, cfg, tokens); err != nil {
 		log.Printf("[worker] post-deploy runtime sync failed service=%s env=%s: %v", op.Resource, environment, err)

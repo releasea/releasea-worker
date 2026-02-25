@@ -18,6 +18,14 @@ import (
 	"time"
 )
 
+func KubeAPIBaseURL() string {
+	base := strings.TrimSpace(os.Getenv("RELEASEA_KUBE_API_BASE_URL"))
+	if base == "" {
+		base = "https://kubernetes.default.svc"
+	}
+	return strings.TrimRight(base, "/")
+}
+
 func ApplyResource(ctx context.Context, client *http.Client, token string, resource map[string]interface{}) error {
 	resource = shared.NormalizeResourceNumbers(resource)
 	kind, _ := resource["kind"].(string)
@@ -260,33 +268,34 @@ func CleanResourceForReapply(resource map[string]interface{}) {
 }
 
 func ResourceURLs(apiVersion, kind, namespace, name string) (string, string, error) {
+	baseURL := KubeAPIBaseURL()
 	switch kind {
 	case "Deployment":
-		base := fmt.Sprintf("https://kubernetes.default.svc/apis/apps/v1/namespaces/%s/deployments", namespace)
+		base := fmt.Sprintf("%s/apis/apps/v1/namespaces/%s/deployments", baseURL, namespace)
 		return base + "/" + name, base, nil
 	case "Service":
-		base := fmt.Sprintf("https://kubernetes.default.svc/api/v1/namespaces/%s/services", namespace)
+		base := fmt.Sprintf("%s/api/v1/namespaces/%s/services", baseURL, namespace)
 		return base + "/" + name, base, nil
 	case "ConfigMap":
-		base := fmt.Sprintf("https://kubernetes.default.svc/api/v1/namespaces/%s/configmaps", namespace)
+		base := fmt.Sprintf("%s/api/v1/namespaces/%s/configmaps", baseURL, namespace)
 		return base + "/" + name, base, nil
 	case "Secret":
-		base := fmt.Sprintf("https://kubernetes.default.svc/api/v1/namespaces/%s/secrets", namespace)
+		base := fmt.Sprintf("%s/api/v1/namespaces/%s/secrets", baseURL, namespace)
 		return base + "/" + name, base, nil
 	case "CronJob":
-		base := fmt.Sprintf("https://kubernetes.default.svc/apis/batch/v1/namespaces/%s/cronjobs", namespace)
+		base := fmt.Sprintf("%s/apis/batch/v1/namespaces/%s/cronjobs", baseURL, namespace)
 		return base + "/" + name, base, nil
 	case "Job":
-		base := fmt.Sprintf("https://kubernetes.default.svc/apis/batch/v1/namespaces/%s/jobs", namespace)
+		base := fmt.Sprintf("%s/apis/batch/v1/namespaces/%s/jobs", baseURL, namespace)
 		return base + "/" + name, base, nil
 	case "HorizontalPodAutoscaler":
-		base := fmt.Sprintf("https://kubernetes.default.svc/apis/autoscaling/v2/namespaces/%s/horizontalpodautoscalers", namespace)
+		base := fmt.Sprintf("%s/apis/autoscaling/v2/namespaces/%s/horizontalpodautoscalers", baseURL, namespace)
 		return base + "/" + name, base, nil
 	case "VirtualService":
-		base := fmt.Sprintf("https://kubernetes.default.svc/apis/networking.istio.io/v1beta1/namespaces/%s/virtualservices", namespace)
+		base := fmt.Sprintf("%s/apis/networking.istio.io/v1beta1/namespaces/%s/virtualservices", baseURL, namespace)
 		return base + "/" + name, base, nil
 	case "AuthorizationPolicy":
-		base := fmt.Sprintf("https://kubernetes.default.svc/apis/security.istio.io/v1beta1/namespaces/%s/authorizationpolicies", namespace)
+		base := fmt.Sprintf("%s/apis/security.istio.io/v1beta1/namespaces/%s/authorizationpolicies", baseURL, namespace)
 		return base + "/" + name, base, nil
 	default:
 		return "", "", fmt.Errorf("unsupported kind %s (apiVersion %s)", kind, apiVersion)
@@ -294,21 +303,38 @@ func ResourceURLs(apiVersion, kind, namespace, name string) (string, string, err
 }
 
 func KubeClient() (*http.Client, string, error) {
-	tokenBytes, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/token")
+	tokenPath := strings.TrimSpace(os.Getenv("RELEASEA_KUBE_TOKEN_FILE"))
+	if tokenPath == "" {
+		tokenPath = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	}
+	tokenBytes, err := os.ReadFile(filepath.Clean(tokenPath))
 	if err != nil {
 		return nil, "", err
 	}
-	caPath := "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-	ca, err := os.ReadFile(filepath.Clean(caPath))
-	if err != nil {
-		return nil, "", err
+
+	insecureSkipVerify := strings.EqualFold(strings.TrimSpace(os.Getenv("RELEASEA_KUBE_INSECURE_SKIP_VERIFY")), "true")
+
+	tlsConfig := &tls.Config{}
+	if insecureSkipVerify {
+		tlsConfig.InsecureSkipVerify = true
+	} else {
+		caPath := strings.TrimSpace(os.Getenv("RELEASEA_KUBE_CA_FILE"))
+		if caPath == "" {
+			caPath = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+		}
+		ca, err := os.ReadFile(filepath.Clean(caPath))
+		if err != nil {
+			return nil, "", err
+		}
+		pool := x509.NewCertPool()
+		if ok := pool.AppendCertsFromPEM(ca); !ok {
+			return nil, "", errors.New("failed to load cluster CA")
+		}
+		tlsConfig.RootCAs = pool
 	}
-	pool := x509.NewCertPool()
-	if ok := pool.AppendCertsFromPEM(ca); !ok {
-		return nil, "", errors.New("failed to load cluster CA")
-	}
+
 	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{RootCAs: pool},
+		TLSClientConfig: tlsConfig,
 	}
 	client := &http.Client{Timeout: 5 * time.Second, Transport: transport}
 	token := strings.TrimSpace(string(tokenBytes))
@@ -319,7 +345,8 @@ func EnsureNamespace(ctx context.Context, client *http.Client, token, namespace 
 	if namespace == "" {
 		return errors.New("namespace missing")
 	}
-	url := fmt.Sprintf("https://kubernetes.default.svc/api/v1/namespaces/%s", namespace)
+	baseURL := KubeAPIBaseURL()
+	url := fmt.Sprintf("%s/api/v1/namespaces/%s", baseURL, namespace)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
@@ -346,7 +373,7 @@ func EnsureNamespace(ctx context.Context, client *http.Client, token, namespace 
 	if err != nil {
 		return err
 	}
-	createReq, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://kubernetes.default.svc/api/v1/namespaces", bytes.NewReader(body))
+	createReq, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/v1/namespaces", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -380,7 +407,7 @@ func labelNamespace(ctx context.Context, client *http.Client, token, namespace s
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("https://kubernetes.default.svc/api/v1/namespaces/%s", namespace)
+	url := fmt.Sprintf("%s/api/v1/namespaces/%s", KubeAPIBaseURL(), namespace)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, url, bytes.NewReader(body))
 	if err != nil {
 		return err
