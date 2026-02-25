@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	commonvalues "releaseaworker/internal/common/values"
+	commonvalues "releaseaworker/common/values"
 )
 
 func ApplyServiceWorkloadResources(

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	commonvalues "releaseaworker/internal/common/values"
+	commonvalues "releaseaworker/common/values"
 )
 
 func cloneResource(resource map[string]interface{}, deps Dependencies) map[string]interface{} {

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	strategyworker "releaseaworker/internal/ops/strategy"
+	strategyworker "releaseaworker/modules/strategy"
 )
 
 // promoteRollingTraffic switches canonical service routing to the rolling workload
