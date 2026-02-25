@@ -7,8 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
-	"releaseaworker/config"
-	ops "releaseaworker/modules"
+	"releaseaworker/internal/config"
+	"releaseaworker/internal/ops"
 )
 
 func main() {

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	commonenv "releaseaworker/common/env"
+	commonenv "releaseaworker/internal/common/env"
 )
 
 type Config struct {

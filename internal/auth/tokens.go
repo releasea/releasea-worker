@@ -1,4 +1,4 @@
-package scm
+package auth
 
 import (
 	"bytes"
@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"releaseaworker/config"
+	"releaseaworker/internal/config"
 )
 
 type Manager struct {

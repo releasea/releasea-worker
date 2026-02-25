@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	strategyworker "releaseaworker/modules/strategy"
+	strategyworker "releaseaworker/internal/ops/strategy"
 )
 
 func handlePromoteCanary(ctx context.Context, client *http.Client, cfg Config, tokens *tokenManager, op operationPayload) error {
