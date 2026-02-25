@@ -273,7 +273,7 @@ func collectHintedDeploymentNames(hints []deploymentResourceHint) []string {
 
 func fetchDeployment(ctx context.Context, client *http.Client, token, namespace, name string) (models.DeploymentInfo, error) {
 	var deployment models.DeploymentInfo
-	url := fmt.Sprintf("https://kubernetes.default.svc/apis/apps/v1/namespaces/%s/deployments/%s", namespace, name)
+	url := fmt.Sprintf("%s/apis/apps/v1/namespaces/%s/deployments/%s", platform.KubeAPIBaseURL(), namespace, name)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return deployment, err
@@ -319,7 +319,7 @@ func evaluateDeploymentPods(ctx context.Context, client *http.Client, token, nam
 func fetchPodsByLabel(ctx context.Context, client *http.Client, token, namespace, selector string) (models.PodList, error) {
 	var pods models.PodList
 	encoded := url.QueryEscape(selector)
-	url := fmt.Sprintf("https://kubernetes.default.svc/api/v1/namespaces/%s/pods?labelSelector=%s", namespace, encoded)
+	url := fmt.Sprintf("%s/api/v1/namespaces/%s/pods?labelSelector=%s", platform.KubeAPIBaseURL(), namespace, encoded)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return pods, err
