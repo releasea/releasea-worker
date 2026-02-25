@@ -1,1 +1,0 @@
-deploy/auto_deploy_monitor.go.src
