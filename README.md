@@ -6,6 +6,11 @@ Distributed worker that executes deploy and runtime operations inside Kubernetes
 
 The worker consumes queue messages, applies desired state, reports runtime health, manages traffic strategy transitions, and synchronizes operation status back to the API.
 
+## Architecture
+
+- Unified API/Worker architecture contract:
+  - [../docs/architecture/releasea-api-worker-unified-contract.md](../docs/architecture/releasea-api-worker-unified-contract.md)
+
 ## Running Locally
 
 ```bash
