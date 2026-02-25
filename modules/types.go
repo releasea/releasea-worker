@@ -1,6 +1,6 @@
 package ops
 
-import "releaseaworker/internal/config"
+import "releaseaworker/config"
 
 type Config = config.Config
 

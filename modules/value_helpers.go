@@ -1,6 +1,6 @@
 package ops
 
-import commonvalues "releaseaworker/internal/common/values"
+import commonvalues "releaseaworker/common/values"
 
 func mapValue(value interface{}) map[string]interface{} {
 	return commonvalues.MapValue(value)

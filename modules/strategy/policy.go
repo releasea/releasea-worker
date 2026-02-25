@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"releaseaworker/internal/common/deploystrategy"
-	commonvalues "releaseaworker/internal/common/values"
+	"releaseaworker/common/deploystrategy"
+	commonvalues "releaseaworker/common/values"
 )
 
 func normalizeStrategyType(service ServiceConfig) string {
