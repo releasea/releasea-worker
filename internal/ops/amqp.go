@@ -1,4 +1,4 @@
-package amqpclient
+package ops
 
 import (
 	"crypto/tls"
@@ -11,7 +11,7 @@ import (
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-func Dial(rabbitURL string) (*amqp.Connection, error) {
+func dialRabbitMQ(rabbitURL string) (*amqp.Connection, error) {
 	tlsConfig, err := rabbitTLSConfig(rabbitURL)
 	if err != nil {
 		return nil, err

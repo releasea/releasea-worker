@@ -5,15 +5,15 @@ import (
 	"errors"
 	"net/http"
 
-	scm "releaseaworker/modules/scm"
+	"releaseaworker/internal/auth"
 )
 
 type tokenManager struct {
-	manager *scm.Manager
+	manager *auth.Manager
 }
 
 func newTokenManager(token string) *tokenManager {
-	return &tokenManager{manager: scm.NewManager(token)}
+	return &tokenManager{manager: auth.NewManager(token)}
 }
 
 func (tm *tokenManager) get(ctx context.Context, client *http.Client, cfg Config) (string, error) {
@@ -31,5 +31,5 @@ func (tm *tokenManager) invalidate() {
 }
 
 func setAuthHeaders(req *http.Request, token string) {
-	scm.SetAuthHeaders(req, token)
+	auth.SetAuthHeaders(req, token)
 }

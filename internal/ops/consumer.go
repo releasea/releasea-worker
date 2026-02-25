@@ -1,24 +1,19 @@
-package amqpclient
+package ops
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
+	"net/http"
+	"time"
+
+	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-type Config struct {
-	RabbitURL string
-	QueueName string
-}
-
-type Handler func(ctx context.Context, body []byte) error
-
-func Consume(ctx context.Context, cfg Config, handler Handler) error {
-	if handler == nil {
-		return errors.New("amqp handler not configured")
-	}
-
-	conn, err := Dial(cfg.RabbitURL)
+func runConsumer(ctx context.Context, cfg Config, tokens *tokenManager) error {
+	conn, err := dialRabbitMQ(cfg.RabbitURL)
 	if err != nil {
 		return err
 	}
@@ -57,6 +52,8 @@ func Consume(ctx context.Context, cfg Config, handler Handler) error {
 
 	log.Printf("[worker] listening for jobs on %s", cfg.QueueName)
 
+	client := &http.Client{Timeout: 15 * time.Second}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -65,7 +62,7 @@ func Consume(ctx context.Context, cfg Config, handler Handler) error {
 			if !ok {
 				return errors.New("rabbitmq channel closed")
 			}
-			if err := handler(ctx, msg.Body); err != nil {
+			if err := processJob(ctx, client, cfg, tokens, msg); err != nil {
 				log.Printf("[worker] job failed: %v", err)
 				_ = msg.Nack(false, false)
 				continue
@@ -73,4 +70,13 @@ func Consume(ctx context.Context, cfg Config, handler Handler) error {
 			_ = msg.Ack(false)
 		}
 	}
+}
+
+func processJob(ctx context.Context, client *http.Client, cfg Config, tokens *tokenManager, msg amqp.Delivery) error {
+	var job operationMessage
+	if err := json.Unmarshal(msg.Body, &job); err != nil || job.OperationID == "" {
+		return fmt.Errorf("invalid job payload: %s", string(msg.Body))
+	}
+
+	return processOperationByID(ctx, client, cfg, tokens, job.OperationID)
 }

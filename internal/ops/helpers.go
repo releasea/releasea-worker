@@ -3,8 +3,8 @@ package ops
 import (
 	"strings"
 
-	commonenv "releaseaworker/common/env"
-	"releaseaworker/namespaces"
+	commonenv "releaseaworker/internal/common/env"
+	"releaseaworker/internal/namespaces"
 )
 
 func resolvePort(value int) int {

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	scm "releaseaworker/modules/scm"
+	scm "releaseaworker/internal/integrations/scm"
 )
 
 func deleteManagedRepository(ctx context.Context, client *http.Client, cred *scmCredential, svc serviceConfig) error {
