@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	platformauth "releaseaworker/internal/platform/auth"
 	platformkube "releaseaworker/internal/platform/integrations/kubernetes"
@@ -85,7 +86,8 @@ func HandleServiceDelete(ctx context.Context, client *http.Client, cfg models.Co
 	}
 
 	if err := deleteManagedRepository(ctx, client, ctxData.SCM, ctxData.Service); err != nil {
-		return err
+		// External SCM cleanup should not block internal service deletion completion.
+		log.Printf("[worker] service delete repo cleanup warning service=%s: %v", op.Resource, err)
 	}
 
 	return nil
