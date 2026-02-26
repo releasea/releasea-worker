@@ -42,6 +42,7 @@ func newTestOperationProcessor() operationProcessor {
 			return false
 		},
 		strategyRequiresRollback: func(_ string) bool { return false },
+		rollbackDetected:         func(_ error) bool { return false },
 		deployRetryDelay:         func() time.Duration { return time.Millisecond },
 		deployRetryMaxAttempts:   func() int { return 3 },
 		wait: func(_ context.Context, _ time.Duration) error {
@@ -167,6 +168,9 @@ func TestOperationProcessorFailOperationWithRollback(t *testing.T) {
 		return execErr
 	}
 	processor.strategyRequiresRollback = func(_ string) bool { return true }
+	processor.rollbackDetected = func(err error) bool {
+		return errors.Is(err, execErr)
+	}
 	processor.operationStrategyType = func(_ models.OperationPayload) string { return "blue-green" }
 	processor.updateDeployStrategyStatus = func(
 		_ context.Context,
@@ -198,6 +202,43 @@ func TestOperationProcessorFailOperationWithRollback(t *testing.T) {
 	}
 	if len(operationStatuses) < 2 || operationStatuses[1] != models.OperationStatusFailed {
 		t.Fatalf("expected failed operation status, got %v", operationStatuses)
+	}
+}
+
+func TestOperationProcessorTreatsStrategyFailureAsFailedWithoutRollbackSignal(t *testing.T) {
+	processor := newTestOperationProcessor()
+	execErr := errors.New("repository authentication failed")
+	var strategyStatuses []string
+
+	processor.executeOperation = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ models.OperationPayload) error {
+		return execErr
+	}
+	processor.strategyRequiresRollback = func(_ string) bool { return true }
+	processor.rollbackDetected = func(_ error) bool { return false }
+	processor.operationStrategyType = func(_ models.OperationPayload) string { return "canary" }
+	processor.updateDeployStrategyStatus = func(
+		_ context.Context,
+		_ *http.Client,
+		_ models.Config,
+		_ *platformauth.TokenManager,
+		_ string,
+		status string,
+		_ string,
+		_ string,
+		_ string,
+		_ map[string]interface{},
+	) error {
+		strategyStatuses = append(strategyStatuses, status)
+		return nil
+	}
+
+	op := models.OperationPayload{ID: "op-strategy-failed", Status: models.OperationStatusQueued, Type: models.OperationTypeServiceDeploy, DeployID: "dep-3"}
+	err := processor.processOperation(context.Background(), &http.Client{}, models.Config{}, nil, op)
+	if err != nil {
+		t.Fatalf("expected nil error, got %v", err)
+	}
+	if len(strategyStatuses) == 0 || strategyStatuses[0] != "failed" {
+		t.Fatalf("expected failed strategy update when rollback not performed, got %v", strategyStatuses)
 	}
 }
 

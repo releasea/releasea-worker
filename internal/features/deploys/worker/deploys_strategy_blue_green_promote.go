@@ -44,7 +44,7 @@ func promoteBlueGreen(
 
 	if err := platformops.UpdateBlueGreenActiveSlot(ctx, client, cfg, tokens, serviceID, environment, candidateSlot); err != nil {
 		_ = switchBlueGreenCanonicalService(ctx, kubeClient, kubeToken, namespace, serviceName, activeName)
-		return "", err
+		return "", MarkRollbackPerformed(err)
 	}
 
 	observedService := service
@@ -66,7 +66,7 @@ func promoteBlueGreen(
 	); err != nil {
 		_ = switchBlueGreenCanonicalService(ctx, kubeClient, kubeToken, namespace, serviceName, activeName)
 		_ = platformops.UpdateBlueGreenActiveSlot(ctx, client, cfg, tokens, serviceID, environment, activeSlot)
-		return "", fmt.Errorf("blue-green promoted slot unhealthy: %w", err)
+		return "", MarkRollbackPerformed(fmt.Errorf("blue-green promoted slot unhealthy: %w", err))
 	}
 
 	if observationSeconds > 0 {

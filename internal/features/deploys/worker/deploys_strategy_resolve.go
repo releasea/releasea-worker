@@ -11,6 +11,42 @@ import (
 	deploystrategy "releaseaworker/internal/platform/shared"
 )
 
+type rollbackPerformedError struct {
+	cause error
+}
+
+func (e rollbackPerformedError) Error() string {
+	if e.cause == nil {
+		return ""
+	}
+	return e.cause.Error()
+}
+
+func (e rollbackPerformedError) Unwrap() error {
+	return e.cause
+}
+
+func (rollbackPerformedError) RollbackPerformed() bool {
+	return true
+}
+
+// MarkRollbackPerformed wraps an error to signal that rollback steps were executed before failing.
+func MarkRollbackPerformed(err error) error {
+	if err == nil {
+		return nil
+	}
+	return rollbackPerformedError{cause: err}
+}
+
+// IsRollbackPerformedError returns true when an error indicates rollback was executed.
+func IsRollbackPerformedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var rollbackErr interface{ RollbackPerformed() bool }
+	return errors.As(err, &rollbackErr) && rollbackErr.RollbackPerformed()
+}
+
 const (
 	deployStatusRequested   = "requested"
 	deployStatusScheduled   = "scheduled"

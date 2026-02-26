@@ -80,3 +80,17 @@ func TestResolveDeployStrategyType(t *testing.T) {
 		t.Fatalf("expected rolling for cronjob, got %q", got)
 	}
 }
+
+func TestRollbackPerformedErrorMarker(t *testing.T) {
+	baseErr := errors.New("promoted slot unhealthy")
+	markedErr := MarkRollbackPerformed(baseErr)
+	if !IsRollbackPerformedError(markedErr) {
+		t.Fatalf("expected rollback marker to be detected")
+	}
+	if IsRollbackPerformedError(baseErr) {
+		t.Fatalf("did not expect plain error to be marked as rollback")
+	}
+	if !errors.Is(markedErr, baseErr) {
+		t.Fatalf("expected rollback marker to preserve wrapped error")
+	}
+}
