@@ -145,3 +145,49 @@ func TestHandleServiceDeleteNamespaceAndKubeClientErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestHandleServiceDeleteDoesNotFailWhenRepoCleanupFails(t *testing.T) {
+	namespace := "releasea-apps-production"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/workers/credentials":
+			_ = json.NewEncoder(w).Encode(models.DeployContext{
+				Service: models.ServiceConfig{
+					ID:          "svc-1",
+					Name:        "api",
+					Type:        "microservice",
+					SourceType:  "git",
+					RepoURL:     "https://github.com/releasea/api",
+					RepoManaged: true,
+				},
+				SCM: &models.SCMCredential{
+					Provider: "github",
+					Token:    "",
+				},
+			})
+		case r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/namespaces/"+namespace+"/"):
+			w.WriteHeader(http.StatusNotFound)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	setupKubeEnvForTest(t, server.URL)
+
+	err := HandleServiceDelete(
+		context.Background(),
+		kubeRewriteClient(server),
+		models.Config{ApiBaseURL: server.URL},
+		platform.NewTokenManager("token"),
+		models.OperationPayload{
+			Resource: "svc-1",
+			Payload: map[string]interface{}{
+				"environment": "prod",
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("expected service delete to continue when repo cleanup fails, got %v", err)
+	}
+}
