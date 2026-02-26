@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"context"
 	"releaseaworker/internal/platform/models"
 	"releaseaworker/internal/platform/shared"
 	"testing"
@@ -144,7 +145,7 @@ func TestStampDeployRevision(t *testing.T) {
 }
 
 func TestApplyResourcesYAMLEmpty(t *testing.T) {
-	err := applyResourcesYAML(nil, "   ", nil)
+	err := applyResourcesYAML(context.TODO(), "   ", nil)
 	if err == nil {
 		t.Fatalf("expected error for empty yaml")
 	}

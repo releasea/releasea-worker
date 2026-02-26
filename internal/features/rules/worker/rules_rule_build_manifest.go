@@ -20,7 +20,7 @@ func buildRuleVirtualService(rule models.RulePayload, service models.ServicePayl
 	vsName := RuleVirtualServiceName(serviceName, rule.ID)
 	destinationHost := fmt.Sprintf("%s.%s.svc.cluster.local", serviceName, namespace)
 	destinationPort := port
-	destinations := []interface{}{}
+	var destinations []interface{}
 	if strings.EqualFold(service.Type, "static-site") {
 		if staticHost := staticNginxHost(cfg); staticHost != "" {
 			destinationHost = staticHost
@@ -273,9 +273,7 @@ func normalizeRulePath(value string) string {
 	if path == "" || path == "*" {
 		return "/"
 	}
-	if strings.HasSuffix(path, "/*") {
-		path = strings.TrimSuffix(path, "/*")
-	}
+	path = strings.TrimSuffix(path, "/*")
 	path = strings.TrimRight(path, "*")
 	if path == "" {
 		return "/"
