@@ -178,7 +178,7 @@ func TestWaitingAndTerminatedFailureReason(t *testing.T) {
 	if !failed || reason != "CrashLoopBackOff" {
 		t.Fatalf("expected crashloop failure, got failed=%v reason=%q", failed, reason)
 	}
-	failed, reason = waitingFailureReason(&models.ContainerStateWaiting{Reason: "ContainerCreating"})
+	failed, _ = waitingFailureReason(&models.ContainerStateWaiting{Reason: "ContainerCreating"})
 	if failed {
 		t.Fatalf("did not expect failure for ContainerCreating")
 	}

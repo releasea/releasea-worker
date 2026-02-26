@@ -296,10 +296,7 @@ func shouldAutoDeployService(service models.ServicePayload) bool {
 		return false
 	}
 	sourceType := shared.NormalizeSourceType(service.SourceType)
-	if sourceType == "registry" {
-		return false
-	}
-	return true
+	return sourceType != "registry"
 }
 
 func fetchAutoDeployServices(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager) ([]models.ServicePayload, error) {

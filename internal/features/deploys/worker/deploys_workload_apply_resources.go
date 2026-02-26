@@ -216,14 +216,13 @@ func applyRenderedResources(ctx context.Context, cfg models.Config, resources []
 	if err := shared.ValidateAppNamespace(defaultNamespace); err != nil {
 		return fmt.Errorf("deploy blocked: %w", err)
 	}
-	namespaces := map[string]struct{}{}
 	serviceName := shared.ToKubeName(ctxData.Service.Name)
 	if serviceName == "" {
 		serviceName = shared.ToKubeName(ctxData.Service.ID)
 	}
 	canaryOnly := ResolveDeployStrategyType(ctxData.Service) == "canary"
 	blueGreenManaged := ResolveDeployStrategyType(ctxData.Service) == "blue-green"
-	namespaces = assignResourceNamespaces(ctx, resources, defaultNamespace, logger)
+	namespaces := assignResourceNamespaces(ctx, resources, defaultNamespace, logger)
 
 	client, token, err := platformkube.KubeClient()
 	if err != nil {

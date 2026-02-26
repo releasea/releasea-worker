@@ -114,48 +114,6 @@ func (logger *DeployLogger) UpdateStrategy(ctx context.Context, service models.S
 	}
 }
 
-type ruleLogger struct {
-	ruleID   string
-	client   *http.Client
-	cfg      models.Config
-	tokens   *auth.TokenManager
-	buffer   []string
-	maxBatch int
-}
-
-func (logger *ruleLogger) Logf(ctx context.Context, format string, args ...interface{}) {
-	if logger == nil {
-		return
-	}
-	logger.AppendLines(ctx, []string{fmt.Sprintf(format, args...)})
-}
-
-func (logger *ruleLogger) AppendLines(ctx context.Context, lines []string) {
-	if logger == nil || len(lines) == 0 {
-		return
-	}
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		logger.buffer = append(logger.buffer, trimmed)
-		if len(logger.buffer) >= logger.maxBatch {
-			logger.Flush(ctx)
-		}
-	}
-}
-
-func (logger *ruleLogger) Flush(ctx context.Context) {
-	if logger == nil || len(logger.buffer) == 0 {
-		return
-	}
-	if err := ops.AppendRuleLogs(ctx, logger.client, logger.cfg, logger.tokens, logger.ruleID, logger.buffer); err != nil {
-		log.Printf("[worker] rule log flush failed: %v", err)
-	}
-	logger.buffer = nil
-}
-
 type RuleDeployLogger struct {
 	ruleDeployID string
 	client       *http.Client
