@@ -33,6 +33,7 @@ type executeOperationFunc func(ctx context.Context, client *http.Client, cfg mod
 type strategyTypeFunc func(op models.OperationPayload) string
 type transientDeployErrorFunc func(err error) bool
 type strategyRollbackFunc func(strategyType string) bool
+type rollbackDetectedFunc func(err error) bool
 type retryDelayFunc func() time.Duration
 type retryAttemptsFunc func() int
 type waitFunc func(ctx context.Context, duration time.Duration) error
@@ -45,6 +46,7 @@ type operationProcessor struct {
 	operationStrategyType      strategyTypeFunc
 	isTransientDeployError     transientDeployErrorFunc
 	strategyRequiresRollback   strategyRollbackFunc
+	rollbackDetected           rollbackDetectedFunc
 	deployRetryDelay           retryDelayFunc
 	deployRetryMaxAttempts     retryAttemptsFunc
 	wait                       waitFunc
@@ -69,6 +71,7 @@ func newDefaultOperationProcessor() operationProcessor {
 		operationStrategyType:      deploymodule.OperationStrategyType,
 		isTransientDeployError:     deploymodule.IsTransientDeployError,
 		strategyRequiresRollback:   deploymodule.StrategyRequiresRollback,
+		rollbackDetected:           deploymodule.IsRollbackPerformedError,
 		deployRetryDelay: func() time.Duration {
 			seconds := shared.EnvInt("WORKER_DEPLOY_RETRY_DELAY_SECONDS", 6)
 			if seconds < 1 {
@@ -294,7 +297,7 @@ func (p operationProcessor) updateDeployFailureStatus(
 	}
 
 	strategyType := p.operationStrategyType(op)
-	if p.strategyRequiresRollback(strategyType) {
+	if p.strategyRequiresRollback(strategyType) && p.rollbackDetected(execErr) {
 		rollbackDetails := map[string]interface{}{"error": execErr.Error()}
 		if err := p.updateDeployStrategyStatus(
 			ctx,
