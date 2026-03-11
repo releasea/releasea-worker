@@ -23,6 +23,9 @@ func sendHeartbeat(ctx context.Context, client *http.Client, cfg models.Config, 
 		"version":         cfg.Version,
 		"status":          "online",
 	}
+	if cfg.BootstrapProfileVersion != "" {
+		payload["bootstrapProfileVersion"] = cfg.BootstrapProfileVersion
+	}
 	if cfg.DeploymentName != "" {
 		payload["deploymentName"] = cfg.DeploymentName
 	}
