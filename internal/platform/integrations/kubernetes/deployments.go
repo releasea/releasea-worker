@@ -45,7 +45,7 @@ func restartDeploymentByName(ctx context.Context, deploymentNamespace, deploymen
 			"template": map[string]interface{}{
 				"metadata": map[string]interface{}{
 					"annotations": map[string]string{
-						"releasea.dev/restartedAt": restartedAt,
+						"releasea.io/restartedAt": restartedAt,
 					},
 				},
 			},
