@@ -6,6 +6,15 @@ Distributed worker that executes deploy and runtime operations inside Kubernetes
 
 The worker consumes queue messages, applies desired state, reports runtime health, manages traffic strategy transitions, and synchronizes operation status back to the API.
 
+> This README is primarily for component-level local development and contribution work. For end-user worker installation, start with the public worker docs linked below.
+
+## Documentation
+
+- Installation guide: [docs.releasea.io/?doc=installation](https://docs.releasea.io/?doc=installation)
+- Installation modes: [docs.releasea.io/?doc=installation-modes](https://docs.releasea.io/?doc=installation-modes)
+- Environments and workers: [docs.releasea.io/?doc=environments-and-workers](https://docs.releasea.io/?doc=environments-and-workers)
+- Public components: [docs.releasea.io/?doc=public-components](https://docs.releasea.io/?doc=public-components)
+
 ## Running Locally
 
 ```bash
@@ -27,7 +36,7 @@ go run ./cmd/main.go
 | `WORKER_NAMESPACE` | Worker namespace | `releasea-workers-prod-01` |
 | `WORKER_NAMESPACE_PREFIX` | Namespace prefix used for generated app namespaces | `releasea-workers` |
 | `WORKER_CLUSTER` | Cluster identifier | `k3d-local` |
-| `WORKER_VERSION` | Worker semantic/runtime version string | `dev` |
+| `WORKER_VERSION` | Worker semantic or runtime version string | `dev` |
 | `WORKER_TAGS` | Comma-separated worker tags | `deploy,approved` |
 
 ### Queue and Heartbeat
@@ -42,7 +51,7 @@ go run ./cmd/main.go
 
 | Variable | Description | Default |
 |---|---|---|
-| `WORKER_POLL_SECONDS` | Polling interval for operation fetch loop | `20` |
+| `WORKER_POLL_SECONDS` | Polling interval for the operation fetch loop | `20` |
 | `WORKER_POLL_LIMIT` | Max operations fetched per polling cycle | `10` |
 | `WORKER_RUNTIME_SECONDS` | Runtime monitor interval | `5` |
 | `WORKER_DESIRED_AGENTS` | Fallback desired agent count | `0` |
@@ -55,7 +64,7 @@ go run ./cmd/main.go
 | `WORKER_DEPLOY_RETRY_MAX_ATTEMPTS` | Max deploy retry attempts | `3` |
 | `WORKER_DEPLOY_READY_TIMEOUT_SECONDS` | Deploy readiness timeout | `420` |
 | `WORKER_DEPLOY_READY_POLL_SECONDS` | Readiness poll interval | `5` |
-| `WORKER_BLUE_GREEN_OBSERVATION_SECONDS` | Blue/green post-promotion observation window | `30` |
+| `WORKER_BLUE_GREEN_OBSERVATION_SECONDS` | Blue or green post-promotion observation window | `30` |
 
 ### Auto-Deploy Monitor
 
@@ -93,7 +102,7 @@ go run ./cmd/main.go
 | `RELEASEA_STATIC_SITE_PREFIX` | Prefix used for static site object keys | `sites` |
 | `RELEASEA_STATIC_NGINX_SERVICE` | Shared static nginx service name | `releasea-static-nginx` |
 | `RELEASEA_STATIC_NGINX_NAMESPACE` | Namespace of shared static nginx service | `releasea-system` |
-| `RELEASEA_NAMESPACE_MAPPING` | Optional JSON override for environment→namespace map | _(empty)_ |
+| `RELEASEA_NAMESPACE_MAPPING` | Optional JSON override for environment-to-namespace map | _(empty)_ |
 
 ### Optional Deployment Metadata
 
