@@ -38,6 +38,9 @@ func sendHeartbeat(ctx context.Context, client *http.Client, cfg models.Config, 
 	if len(cfg.Tags) > 0 {
 		payload["tags"] = cfg.Tags
 	}
+	if workloads, err := platformkube.DiscoverWorkloads(ctx, cfg); err == nil {
+		payload["discoveredWorkloads"] = workloads
+	}
 
 	body, err := json.Marshal(payload)
 	if err != nil {

@@ -22,10 +22,18 @@ func TestInjectToken(t *testing.T) {
 	if withToken == url {
 		t.Fatalf("expected url with injected token")
 	}
+	if want := "https://x-access-token:abc123@github.com/releasea/worker.git"; withToken != want {
+		t.Fatalf("expected github auth url %q, got %q", want, withToken)
+	}
 
-	nonGithub := InjectToken(url, &models.SCMCredential{Provider: "gitlab", Token: "xyz"})
-	if nonGithub == url {
-		t.Fatalf("expected non-github token injection")
+	gitlab := InjectToken("https://gitlab.com/releasea/worker.git", &models.SCMCredential{Provider: "gitlab", Token: "xyz"})
+	if want := "https://oauth2:xyz@gitlab.com/releasea/worker.git"; gitlab != want {
+		t.Fatalf("expected gitlab auth url %q, got %q", want, gitlab)
+	}
+
+	bitbucket := InjectToken("https://bitbucket.org/releasea/worker.git", &models.SCMCredential{Provider: "bitbucket", Token: "pqr"})
+	if want := "https://x-token-auth:pqr@bitbucket.org/releasea/worker.git"; bitbucket != want {
+		t.Fatalf("expected bitbucket auth url %q, got %q", want, bitbucket)
 	}
 
 	if got := InjectToken(url, nil); got != url {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"reflect"
 	platformauth "releaseaworker/internal/platform/auth"
 	"releaseaworker/internal/platform/models"
@@ -156,15 +157,6 @@ func TestBuildAutoDeployStates(t *testing.T) {
 }
 
 func TestParseAndNormalizeHelpers(t *testing.T) {
-	owner, repo, ok := parseGitHubRepository("https://github.com/releasea/worker.git")
-	if !ok || owner != "releasea" || repo != "worker" {
-		t.Fatalf("unexpected parse result owner=%q repo=%q ok=%v", owner, repo, ok)
-	}
-
-	if _, _, ok := parseGitHubRepository("git@github.com:releasea/worker.git"); ok {
-		t.Fatalf("ssh format should not match current parser")
-	}
-
 	if got := normalizeCommitSHA(" AbCd "); got != "abcd" {
 		t.Fatalf("unexpected normalized sha: %q", got)
 	}
@@ -189,6 +181,39 @@ func TestParseAndNormalizeHelpers(t *testing.T) {
 	want := []string{"prod", "staging", "dev"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("expected %v, got %v", want, got)
+	}
+}
+
+func TestFetchLatestServiceCommitUsesRepoURL(t *testing.T) {
+	var capturedQuery url.Values
+	client := &http.Client{
+		Timeout: 200 * time.Millisecond,
+		Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+			capturedQuery = req.URL.Query()
+			return newJSONResponse(http.StatusOK, []map[string]string{{"sha": "abc123"}}), nil
+		}),
+	}
+	cfg := models.Config{ApiBaseURL: "http://releasea.local"}
+	tokens := platformauth.NewTokenManager("worker-access-token")
+	service := models.ServicePayload{
+		RepoURL:         "https://github.com/releasea/worker.git",
+		Branch:          "main",
+		ProjectID:       "proj-1",
+		SCMCredentialID: "scm-1",
+	}
+
+	sha, err := fetchLatestServiceCommit(context.Background(), client, cfg, tokens, service)
+	if err != nil {
+		t.Fatalf("expected no error fetching latest commit, got %v", err)
+	}
+	if sha != "abc123" {
+		t.Fatalf("expected sha abc123, got %q", sha)
+	}
+	if got := capturedQuery.Get("repoUrl"); got != service.RepoURL {
+		t.Fatalf("expected repoUrl query %q, got %q", service.RepoURL, got)
+	}
+	if capturedQuery.Get("owner") != "" || capturedQuery.Get("repo") != "" {
+		t.Fatalf("expected owner/repo query params to be empty, got %v", capturedQuery)
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	platformops "releaseaworker/internal/platform/integrations/operations"
 	platformlogging "releaseaworker/internal/platform/logging"
 	"releaseaworker/internal/platform/models"
+	registryproviders "releaseaworker/internal/platform/providers/registry"
 	"releaseaworker/internal/platform/shared"
 	platformutils "releaseaworker/internal/platform/utils"
 	"strings"
@@ -760,16 +761,13 @@ func buildAndPushImageFull(
 	buildImage := image
 	latestImage := baseImage + ":latest"
 
-	registryHost := ""
+	registryProvider := ""
+	registryURL := ""
 	if ctxData.Registry != nil {
-		registryHost = platformutils.NormalizeRegistryHost(ctxData.Registry.RegistryUrl)
+		registryProvider = ctxData.Registry.Provider
+		registryURL = ctxData.Registry.RegistryUrl
 	}
-	if registryHost == "" {
-		registryHost = platformutils.NormalizeRegistryHost(platformutils.RegistryFromImage(image))
-	}
-	if registryHost == "" {
-		registryHost = "docker.io"
-	}
+	registryHost := registryproviders.ResolveRuntime(registryProvider).ResolveLoginHost(registryURL, image)
 
 	if ctxData.Registry != nil && ctxData.Registry.Username != "" && ctxData.Registry.Password != "" {
 		log.Printf("[worker] authenticating registry %s with user=%s credential_id=%s password_set=%t",
