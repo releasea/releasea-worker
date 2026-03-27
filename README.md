@@ -14,6 +14,9 @@ The worker consumes queue messages, applies desired state, reports runtime healt
 - Installation modes: [docs.releasea.io/?doc=installation-modes](https://docs.releasea.io/?doc=installation-modes)
 - Environments and workers: [docs.releasea.io/?doc=environments-and-workers](https://docs.releasea.io/?doc=environments-and-workers)
 - Public components: [docs.releasea.io/?doc=public-components](https://docs.releasea.io/?doc=public-components)
+- Contribution guide: [../CONTRIBUTING.md](../CONTRIBUTING.md)
+- Public roadmap: [../ROADMAP.md](../ROADMAP.md)
+- Provider extension: [docs.releasea.io/?doc=provider-extension](https://docs.releasea.io/?doc=provider-extension)
 
 ## Running Locally
 

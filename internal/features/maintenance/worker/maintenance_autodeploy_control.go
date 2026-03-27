@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"regexp"
 	platformauth "releaseaworker/internal/platform/auth"
 	platformops "releaseaworker/internal/platform/integrations/operations"
 	"releaseaworker/internal/platform/models"
@@ -50,8 +49,6 @@ type autoDeployMonitorRuntime struct {
 	recentlyQueued      map[string]time.Time
 	serviceCooldownByID map[string]time.Time
 }
-
-var githubRepoURLPattern = regexp.MustCompile(`github\.com/([^/\s]+)/([^/\s]+)`)
 
 func RunAutoDeployMonitor(ctx context.Context, cfg models.Config, tokens *platformauth.TokenManager) {
 	if shared.EnvInt("WORKER_AUTODEPLOY_ENABLED", 1) == 0 {
@@ -143,12 +140,7 @@ func runAutoDeployCycle(
 			continue
 		}
 
-		owner, repo, ok := parseGitHubRepository(service.RepoURL)
-		if !ok {
-			continue
-		}
-
-		latestCommit, err := fetchLatestServiceCommit(ctx, client, cfg, tokens, service, owner, repo)
+		latestCommit, err := fetchLatestServiceCommit(ctx, client, cfg, tokens, service)
 		if err != nil {
 			runtime.markServiceCooldown(service.ID, now.Add(resolveAutoDeployErrorCooldown(interval)))
 			log.Printf("[worker] auto deploy commit lookup failed service=%s: %v", service.ID, err)
@@ -365,8 +357,6 @@ func fetchLatestServiceCommit(
 	cfg models.Config,
 	tokens *platformauth.TokenManager,
 	service models.ServicePayload,
-	owner string,
-	repo string,
 ) (string, error) {
 	branch := strings.TrimSpace(service.Branch)
 	if branch == "" {
@@ -374,8 +364,7 @@ func fetchLatestServiceCommit(
 	}
 
 	params := url.Values{}
-	params.Set("owner", owner)
-	params.Set("repo", repo)
+	params.Set("repoUrl", strings.TrimSpace(service.RepoURL))
 	params.Set("branch", branch)
 	if projectID := strings.TrimSpace(service.ProjectID); projectID != "" {
 		params.Set("projectId", projectID)
@@ -384,7 +373,7 @@ func fetchLatestServiceCommit(
 		params.Set("scmCredentialId", scmCredentialID)
 	}
 
-	endpoint := cfg.ApiBaseURL + "/scm/github/commits?" + params.Encode()
+	endpoint := cfg.ApiBaseURL + "/scm/commits?" + params.Encode()
 	var commits []scmCommitEntry
 	if err := platformops.DoJSONRequest(
 		ctx,
@@ -489,26 +478,6 @@ func queueAutoDeploy(
 		}
 	}
 	return responseCommit == requestedCommit, nil
-}
-
-func parseGitHubRepository(rawURL string) (string, string, bool) {
-	trimmed := strings.TrimSpace(rawURL)
-	if trimmed == "" {
-		return "", "", false
-	}
-
-	match := githubRepoURLPattern.FindStringSubmatch(trimmed)
-	if len(match) < 3 {
-		return "", "", false
-	}
-
-	owner := strings.TrimSpace(match[1])
-	repo := strings.TrimSpace(match[2])
-	repo = strings.TrimSuffix(repo, ".git")
-	if owner == "" || repo == "" {
-		return "", "", false
-	}
-	return owner, repo, true
 }
 
 func normalizeCommitSHA(value string) string {

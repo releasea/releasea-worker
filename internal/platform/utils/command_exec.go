@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/url"
 	"os"
 	"os/exec"
 	workerlog "releaseaworker/internal/platform/logging"
 	"releaseaworker/internal/platform/models"
+	registryproviders "releaseaworker/internal/platform/providers/registry"
+	scmproviders "releaseaworker/internal/platform/providers/scm"
 	"strings"
 )
 
@@ -107,55 +108,24 @@ func DockerLogin(ctx context.Context, registry, username, password string) error
 }
 
 func InjectToken(repoURL string, cred *models.SCMCredential) string {
-	if cred == nil || cred.Token == "" {
+	runtime, ok := scmproviders.ResolveRuntime(credProvider(cred))
+	if !ok {
 		return repoURL
 	}
-	parsed, err := url.Parse(repoURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return repoURL
-	}
-	if parsed.User != nil && parsed.User.Username() != "" {
-		return repoURL
-	}
-	user := "x-access-token"
-	pass := cred.Token
-	if strings.ToLower(cred.Provider) != "github" {
-		user = cred.Token
-		pass = ""
-	}
-	parsed.User = url.UserPassword(user, pass)
-	return parsed.String()
+	return runtime.InjectCloneCredentials(repoURL, cred)
 }
 
 func RegistryFromImage(image string) string {
-	if image == "" {
-		return ""
-	}
-	parts := strings.Split(image, "/")
-	if len(parts) < 2 {
-		return ""
-	}
-	host := parts[0]
-	if strings.Contains(host, ".") || strings.Contains(host, ":") {
-		return host
-	}
-	return ""
+	return registryproviders.HostFromImage(image)
 }
 
 func NormalizeRegistryHost(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
+	return registryproviders.NormalizeHost(value)
+}
+
+func credProvider(cred *models.SCMCredential) string {
+	if cred == nil {
 		return ""
 	}
-	if strings.Contains(value, "://") {
-		if parsed, err := url.Parse(value); err == nil {
-			value = parsed.Host
-		}
-	}
-	value = strings.TrimSuffix(value, "/v1/")
-	value = strings.TrimSuffix(value, "/")
-	if value == "index.docker.io" {
-		return "docker.io"
-	}
-	return value
+	return cred.Provider
 }
