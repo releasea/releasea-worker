@@ -66,6 +66,11 @@ func runConsumer(ctx context.Context, cfg models.Config, tokens *platformauth.To
 				return errors.New("rabbitmq channel closed")
 			}
 			if err := processJob(ctx, client, cfg, tokens, msg); err != nil {
+				if errors.Is(err, ErrOperationNotCompatible) {
+					log.Printf("[worker] job requeued: %v", err)
+					_ = msg.Nack(false, true)
+					continue
+				}
 				log.Printf("[worker] job failed: %v", err)
 				_ = msg.Nack(false, false)
 				continue

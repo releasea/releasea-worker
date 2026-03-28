@@ -75,6 +75,70 @@ func TestOperationProcessorSkipsAlreadyClaimedOperation(t *testing.T) {
 	}
 }
 
+func TestOperationProcessorRequeuesIncompatibleTaggedOperation(t *testing.T) {
+	processor := newTestOperationProcessor()
+	statusCalls := 0
+	executed := false
+	processor.updateOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string, _ string, _ string) error {
+		statusCalls++
+		return nil
+	}
+	processor.executeOperation = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ models.OperationPayload) error {
+		executed = true
+		return nil
+	}
+
+	err := processor.processOperation(context.Background(), &http.Client{}, models.Config{
+		WorkerName:  "worker-dev-build",
+		Environment: "dev",
+		Tags:        []string{"build"},
+	}, nil, models.OperationPayload{
+		ID:     "op-tag-mismatch",
+		Status: models.OperationStatusQueued,
+		Type:   models.OperationTypeServiceDeploy,
+		Payload: map[string]interface{}{
+			"environment": "dev",
+			"workerTags":  []interface{}{"gpu"},
+		},
+	})
+	if !errors.Is(err, ErrOperationNotCompatible) {
+		t.Fatalf("expected ErrOperationNotCompatible, got %v", err)
+	}
+	if statusCalls != 0 {
+		t.Fatalf("expected no status update before requeue, got %d", statusCalls)
+	}
+	if executed {
+		t.Fatalf("expected incompatible operation not to execute")
+	}
+}
+
+func TestOperationProcessorRequeuesIncompatibleEnvironmentOperation(t *testing.T) {
+	processor := newTestOperationProcessor()
+	statusCalls := 0
+	processor.updateOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string, _ string, _ string) error {
+		statusCalls++
+		return nil
+	}
+
+	err := processor.processOperation(context.Background(), &http.Client{}, models.Config{
+		WorkerName:  "worker-dev",
+		Environment: "dev",
+	}, nil, models.OperationPayload{
+		ID:     "op-env-mismatch",
+		Status: models.OperationStatusQueued,
+		Type:   models.OperationTypeServiceDelete,
+		Payload: map[string]interface{}{
+			"environment": "prod",
+		},
+	})
+	if !errors.Is(err, ErrOperationNotCompatible) {
+		t.Fatalf("expected ErrOperationNotCompatible, got %v", err)
+	}
+	if statusCalls != 0 {
+		t.Fatalf("expected no status update before requeue, got %d", statusCalls)
+	}
+}
+
 func TestOperationProcessorSkipsNonQueuedOperation(t *testing.T) {
 	processor := newTestOperationProcessor()
 	statusCalls := 0

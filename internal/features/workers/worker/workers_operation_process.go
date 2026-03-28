@@ -10,10 +10,12 @@ import (
 	platformops "releaseaworker/internal/platform/integrations/operations"
 	"releaseaworker/internal/platform/models"
 	"releaseaworker/internal/platform/shared"
+	"strings"
 	"time"
 )
 
 var errOperationConflict = platformops.ErrOperationConflict
+var ErrOperationNotCompatible = errors.New("operation not compatible with worker")
 
 type fetchOperationFunc func(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager, opID string) (models.OperationPayload, error)
 type updateOperationStatusFunc func(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager, opID, status, errMsg string) error
@@ -115,6 +117,11 @@ func (p operationProcessor) processOperation(ctx context.Context, client *http.C
 		return nil
 	}
 
+	if compatible, reason := operationCompatibleWithWorker(cfg, op); !compatible {
+		log.Printf("[worker] operation %s incompatible with worker %s: %s", op.ID, cfg.WorkerName, reason)
+		return ErrOperationNotCompatible
+	}
+
 	claimed, err := p.claimOperation(ctx, client, cfg, tokens, op.ID)
 	if err != nil {
 		return err
@@ -140,6 +147,75 @@ func (p operationProcessor) processOperation(ctx context.Context, client *http.C
 
 	log.Printf("[worker] operation %s completed", op.ID)
 	return nil
+}
+
+func operationCompatibleWithWorker(cfg models.Config, op models.OperationPayload) (bool, string) {
+	operationEnvironment := strings.TrimSpace(stringPayload(op.Payload["environment"]))
+	if operationEnvironment != "" {
+		workerNamespace := shared.ResolveAppNamespace(cfg.Environment)
+		operationNamespace := shared.ResolveAppNamespace(operationEnvironment)
+		if workerNamespace != operationNamespace {
+			return false, "environment namespace mismatch"
+		}
+	}
+
+	requiredTags := normalizeWorkerTags(payloadStringSlice(op.Payload["workerTags"]))
+	if len(requiredTags) == 0 {
+		return true, ""
+	}
+
+	availableTags := make(map[string]struct{}, len(cfg.Tags))
+	for _, tag := range normalizeWorkerTags(cfg.Tags) {
+		availableTags[tag] = struct{}{}
+	}
+	for _, tag := range requiredTags {
+		if _, ok := availableTags[tag]; !ok {
+			return false, "missing required worker tags"
+		}
+	}
+
+	return true, ""
+}
+
+func normalizeWorkerTags(tags []string) []string {
+	normalized := make([]string, 0, len(tags))
+	seen := make(map[string]struct{}, len(tags))
+	for _, tag := range tags {
+		trimmed := strings.TrimSpace(tag)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		normalized = append(normalized, trimmed)
+	}
+	return normalized
+}
+
+func payloadStringSlice(raw interface{}) []string {
+	switch value := raw.(type) {
+	case []string:
+		return append([]string(nil), value...)
+	case []interface{}:
+		items := make([]string, 0, len(value))
+		for _, item := range value {
+			items = append(items, stringPayload(item))
+		}
+		return items
+	default:
+		return nil
+	}
+}
+
+func stringPayload(raw interface{}) string {
+	switch value := raw.(type) {
+	case string:
+		return value
+	default:
+		return ""
+	}
 }
 
 func (p operationProcessor) claimOperation(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager, operationID string) (bool, error) {
