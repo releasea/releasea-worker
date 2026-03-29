@@ -76,37 +76,52 @@ func TestShouldAutoDeployService(t *testing.T) {
 		SourceType: "git",
 		RepoURL:    "https://github.com/releasea/platform",
 	}
-	if !shouldAutoDeployService(service) {
+	if shouldAutoDeployService(service, "prod", false) {
+		t.Fatalf("expected legacy service without known environment state to stay disabled")
+	}
+
+	service.AutoDeployEnvironment = "production"
+	if !shouldAutoDeployService(service, "prod", false) {
 		t.Fatalf("expected auto deploy enabled by default")
+	}
+	if shouldAutoDeployService(service, "staging", false) {
+		t.Fatalf("expected auto deploy disabled for different worker environment")
 	}
 
 	service.AutoDeploy = boolPtr(false)
-	if shouldAutoDeployService(service) {
+	if shouldAutoDeployService(service, "prod", true) {
 		t.Fatalf("expected disabled when autoDeploy=false")
 	}
 
 	service.AutoDeploy = boolPtr(true)
 	service.DeployTemplateID = "tpl-cronjob"
-	if shouldAutoDeployService(service) {
+	if shouldAutoDeployService(service, "prod", true) {
 		t.Fatalf("expected disabled for cronjob")
 	}
 
 	service.DeployTemplateID = ""
 	service.Status = "deleting"
-	if shouldAutoDeployService(service) {
+	if shouldAutoDeployService(service, "prod", true) {
 		t.Fatalf("expected disabled for deleting service")
 	}
 
 	service.Status = "active"
 	service.RepoURL = ""
-	if shouldAutoDeployService(service) {
+	if shouldAutoDeployService(service, "prod", true) {
 		t.Fatalf("expected disabled without repository")
 	}
 
 	service.RepoURL = "docker.io/releasea/api"
 	service.SourceType = "registry"
-	if shouldAutoDeployService(service) {
+	if shouldAutoDeployService(service, "prod", true) {
 		t.Fatalf("expected disabled for registry source")
+	}
+
+	service.RepoURL = "https://github.com/releasea/platform"
+	service.SourceType = "git"
+	service.AutoDeployEnvironment = ""
+	if !shouldAutoDeployService(service, "prod", true) {
+		t.Fatalf("expected legacy service with known deploy history in worker environment to stay eligible")
 	}
 }
 

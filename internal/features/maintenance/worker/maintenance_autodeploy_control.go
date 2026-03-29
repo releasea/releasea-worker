@@ -126,12 +126,12 @@ func runAutoDeployCycle(
 	states := buildAutoDeployStates(deploys)
 
 	for _, service := range services {
-		if !shouldAutoDeployService(service) {
+		stateKey := autoDeployStateKey(service.ID, environment)
+		state := states[stateKey]
+		if !shouldAutoDeployService(service, environment, state != nil) {
 			continue
 		}
 
-		stateKey := autoDeployStateKey(service.ID, environment)
-		state := states[stateKey]
 		if state != nil && state.blocking {
 			continue
 		}
@@ -272,7 +272,7 @@ func resolveAutoDeployRecentQueueTTL(interval time.Duration) time.Duration {
 	return time.Duration(seconds) * time.Second
 }
 
-func shouldAutoDeployService(service models.ServicePayload) bool {
+func shouldAutoDeployService(service models.ServicePayload, workerEnvironment string, hasKnownState bool) bool {
 	autoDeployEnabled := service.AutoDeploy == nil || *service.AutoDeploy
 	if !autoDeployEnabled {
 		return false
@@ -288,7 +288,20 @@ func shouldAutoDeployService(service models.ServicePayload) bool {
 		return false
 	}
 	sourceType := shared.NormalizeSourceType(service.SourceType)
-	return sourceType != "registry"
+	if sourceType == "registry" {
+		return false
+	}
+
+	targetEnvironmentRaw := strings.TrimSpace(service.AutoDeployEnvironment)
+	if targetEnvironmentRaw != "" {
+		targetEnvironment := normalizeWorkerEnvironment(targetEnvironmentRaw)
+		return targetEnvironment == normalizeWorkerEnvironment(workerEnvironment)
+	}
+
+	// Legacy services may not have an explicit target environment yet.
+	// In that case, only keep monitoring environments where the service has
+	// already produced deploy history, avoiding accidental cross-environment deploys.
+	return hasKnownState
 }
 
 func fetchAutoDeployServices(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager) ([]models.ServicePayload, error) {
