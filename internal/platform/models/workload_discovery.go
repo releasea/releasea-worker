@@ -9,10 +9,17 @@ type DiscoveredEnvironmentVariable struct {
 }
 
 type DiscoveredContainer struct {
-	Name     string `json:"name"`
-	Image    string `json:"image,omitempty"`
-	Ports    []int  `json:"ports,omitempty"`
-	Imported bool   `json:"imported,omitempty"`
+	Name                 string                          `json:"name"`
+	Image                string                          `json:"image,omitempty"`
+	Ports                []int                           `json:"ports,omitempty"`
+	Imported             bool                            `json:"imported,omitempty"`
+	HealthCheckPath      string                          `json:"healthCheckPath,omitempty"`
+	Probes               []DiscoveredProbe               `json:"probes,omitempty"`
+	EnvironmentVariables []DiscoveredEnvironmentVariable `json:"environmentVariables,omitempty"`
+	Command              []string                        `json:"command,omitempty"`
+	Args                 []string                        `json:"args,omitempty"`
+	CPUMilli             int                             `json:"cpuMilli,omitempty"`
+	MemoryMi             int                             `json:"memoryMi,omitempty"`
 }
 
 type DiscoveredServiceHint struct {

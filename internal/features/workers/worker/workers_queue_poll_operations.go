@@ -36,6 +36,11 @@ func runPoller(ctx context.Context, cfg models.Config, tokens *platformauth.Toke
 }
 
 func drainQueuedOperations(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager, limit int) error {
+	control, err := defaultWorkerPoolControlCache.get(ctx, client, cfg, tokens)
+	if err == nil && workerPoolBlocksClaims(control) {
+		return nil
+	}
+
 	ops, err := platformops.FetchQueuedOperations(ctx, client, cfg, tokens)
 	if err != nil {
 		return err

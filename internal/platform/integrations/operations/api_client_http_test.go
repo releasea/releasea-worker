@@ -122,3 +122,30 @@ func TestFetchOperationsByStatusBuildsQuery(t *testing.T) {
 		t.Fatalf("unexpected query built: %q", seenQuery)
 	}
 }
+
+func TestFetchQueuedOperationsUsesFairnessQuery(t *testing.T) {
+	var seenQuery string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenQuery = r.URL.RawQuery
+		_ = json.NewEncoder(w).Encode([]models.OperationPayload{})
+	}))
+	defer server.Close()
+
+	cfg := models.Config{ApiBaseURL: server.URL}
+	tokens := auth.NewTokenManager("token-1")
+	client := server.Client()
+
+	_, err := FetchQueuedOperations(context.Background(), client, cfg, tokens)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(seenQuery, "status="+models.OperationStatusQueued) {
+		t.Fatalf("expected queued status in query, got %q", seenQuery)
+	}
+	if !strings.Contains(seenQuery, "fairness=resource") {
+		t.Fatalf("expected fairness=resource in query, got %q", seenQuery)
+	}
+	if !strings.Contains(seenQuery, "limit=50") {
+		t.Fatalf("expected limit=50 in query, got %q", seenQuery)
+	}
+}

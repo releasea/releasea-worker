@@ -65,6 +65,14 @@ func runConsumer(ctx context.Context, cfg models.Config, tokens *platformauth.To
 			if !ok {
 				return errors.New("rabbitmq channel closed")
 			}
+			control, err := defaultWorkerPoolControlCache.get(ctx, client, cfg, tokens)
+			if err == nil && workerPoolBlocksClaims(control) {
+				_ = msg.Nack(false, true)
+				if waitErr := waitWithContext(ctx, 2*time.Second); waitErr != nil {
+					return waitErr
+				}
+				continue
+			}
 			if err := processJob(ctx, client, cfg, tokens, msg); err != nil {
 				if errors.Is(err, ErrOperationNotCompatible) {
 					log.Printf("[worker] job requeued: %v", err)

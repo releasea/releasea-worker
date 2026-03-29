@@ -17,7 +17,12 @@ import (
 var ErrOperationConflict = errors.New("operation conflict")
 
 func FetchQueuedOperations(ctx context.Context, client *http.Client, cfg models.Config, tokens *auth.TokenManager) ([]models.OperationPayload, error) {
-	return FetchOperationsByStatus(ctx, client, cfg, tokens, models.OperationStatusQueued, "")
+	endpoint := cfg.ApiBaseURL + "/operations?status=" + models.OperationStatusQueued + "&fairness=resource&limit=50"
+	var operations []models.OperationPayload
+	if err := DoJSONRequest(ctx, client, cfg, tokens, http.MethodGet, endpoint, nil, &operations, "operations fetch"); err != nil {
+		return nil, err
+	}
+	return operations, nil
 }
 
 func FetchOperationsByStatus(

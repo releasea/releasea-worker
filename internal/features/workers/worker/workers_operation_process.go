@@ -159,6 +159,11 @@ func operationCompatibleWithWorker(cfg models.Config, op models.OperationPayload
 		}
 	}
 
+	preferredCluster := strings.TrimSpace(stringPayload(op.Payload["preferredWorkerCluster"]))
+	if preferredCluster != "" && strings.TrimSpace(cfg.Cluster) != preferredCluster {
+		return false, "worker cluster does not match preferred cluster"
+	}
+
 	requiredTags := normalizeWorkerTags(payloadStringSlice(op.Payload["workerTags"]))
 	if len(requiredTags) == 0 {
 		return true, ""
