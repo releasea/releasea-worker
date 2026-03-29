@@ -17,6 +17,9 @@ func newTestOperationProcessor() operationProcessor {
 		fetchOperation: func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string) (models.OperationPayload, error) {
 			return models.OperationPayload{}, nil
 		},
+		claimOperationStatus: func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string) error {
+			return nil
+		},
 		updateOperationStatus: func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _, _, _ string) error {
 			return nil
 		},
@@ -54,11 +57,8 @@ func newTestOperationProcessor() operationProcessor {
 func TestOperationProcessorSkipsAlreadyClaimedOperation(t *testing.T) {
 	processor := newTestOperationProcessor()
 	var executed bool
-	processor.updateOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string, status string, _ string) error {
-		if status == models.OperationStatusInProgress {
-			return errOperationConflict
-		}
-		return nil
+	processor.claimOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string) error {
+		return errOperationConflict
 	}
 	processor.executeOperation = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ models.OperationPayload) error {
 		executed = true
@@ -193,6 +193,11 @@ func TestOperationProcessorMarksUnknownOperationAsFailed(t *testing.T) {
 	processor := newTestOperationProcessor()
 	var statuses []string
 	var failureMsg string
+	var claimCalls int
+	processor.claimOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string) error {
+		claimCalls++
+		return nil
+	}
 	processor.updateOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string, status string, errMsg string) error {
 		statuses = append(statuses, status)
 		if status == models.OperationStatusFailed {
@@ -209,8 +214,11 @@ func TestOperationProcessorMarksUnknownOperationAsFailed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if len(statuses) != 2 || statuses[0] != models.OperationStatusInProgress || statuses[1] != models.OperationStatusFailed {
-		t.Fatalf("expected status transitions [in-progress failed], got %v", statuses)
+	if claimCalls != 1 {
+		t.Fatalf("expected single claim call, got %d", claimCalls)
+	}
+	if len(statuses) != 1 || statuses[0] != models.OperationStatusFailed {
+		t.Fatalf("expected failed status update after claim, got %v", statuses)
 	}
 	if !strings.Contains(failureMsg, ErrUnsupportedOperationType.Error()) {
 		t.Fatalf("expected failure message for unknown operation, got %q", failureMsg)
@@ -220,6 +228,11 @@ func TestOperationProcessorMarksUnknownOperationAsFailed(t *testing.T) {
 func TestOperationProcessorMarksSuccess(t *testing.T) {
 	processor := newTestOperationProcessor()
 	var statuses []string
+	var claimCalls int
+	processor.claimOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string) error {
+		claimCalls++
+		return nil
+	}
 	processor.updateOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string, status string, _ string) error {
 		statuses = append(statuses, status)
 		return nil
@@ -230,8 +243,11 @@ func TestOperationProcessorMarksSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if len(statuses) != 2 || statuses[0] != models.OperationStatusInProgress || statuses[1] != models.OperationStatusSucceeded {
-		t.Fatalf("expected [in-progress succeeded], got %v", statuses)
+	if claimCalls != 1 {
+		t.Fatalf("expected single claim call, got %d", claimCalls)
+	}
+	if len(statuses) != 1 || statuses[0] != models.OperationStatusSucceeded {
+		t.Fatalf("expected [succeeded] after claim, got %v", statuses)
 	}
 }
 
@@ -256,7 +272,12 @@ func TestOperationProcessorFailOperationWithRollback(t *testing.T) {
 	execErr := errors.New("boom")
 	var strategyStatuses []string
 	var operationStatuses []string
+	var claimCalls int
 
+	processor.claimOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string) error {
+		claimCalls++
+		return nil
+	}
 	processor.executeOperation = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ models.OperationPayload) error {
 		return execErr
 	}
@@ -293,7 +314,10 @@ func TestOperationProcessorFailOperationWithRollback(t *testing.T) {
 	if len(strategyStatuses) == 0 || strategyStatuses[0] != "rollback" {
 		t.Fatalf("expected rollback strategy update, got %v", strategyStatuses)
 	}
-	if len(operationStatuses) < 2 || operationStatuses[1] != models.OperationStatusFailed {
+	if claimCalls != 1 {
+		t.Fatalf("expected single claim call, got %d", claimCalls)
+	}
+	if len(operationStatuses) != 1 || operationStatuses[0] != models.OperationStatusFailed {
 		t.Fatalf("expected failed operation status, got %v", operationStatuses)
 	}
 }
@@ -450,6 +474,11 @@ func TestOperationProcessorProcessesRuleDeploySuccessfully(t *testing.T) {
 	processor := newTestOperationProcessor()
 	var statuses []string
 	var executions int
+	var claimCalls int
+	processor.claimOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string) error {
+		claimCalls++
+		return nil
+	}
 	processor.executeOperation = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ models.OperationPayload) error {
 		executions++
 		return nil
@@ -472,7 +501,10 @@ func TestOperationProcessorProcessesRuleDeploySuccessfully(t *testing.T) {
 	if executions != 1 {
 		t.Fatalf("expected one execution, got %d", executions)
 	}
-	if want := []string{models.OperationStatusInProgress, models.OperationStatusSucceeded}; !equalStatuses(statuses, want) {
+	if claimCalls != 1 {
+		t.Fatalf("expected single claim call, got %d", claimCalls)
+	}
+	if want := []string{models.OperationStatusSucceeded}; !equalStatuses(statuses, want) {
 		t.Fatalf("unexpected status transitions: got %v want %v", statuses, want)
 	}
 }
@@ -480,6 +512,11 @@ func TestOperationProcessorProcessesRuleDeploySuccessfully(t *testing.T) {
 func TestOperationProcessorProcessesRuleDeleteSuccessfully(t *testing.T) {
 	processor := newTestOperationProcessor()
 	var statuses []string
+	var claimCalls int
+	processor.claimOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string) error {
+		claimCalls++
+		return nil
+	}
 	processor.updateOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string, status string, _ string) error {
 		statuses = append(statuses, status)
 		return nil
@@ -495,7 +532,10 @@ func TestOperationProcessorProcessesRuleDeleteSuccessfully(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if want := []string{models.OperationStatusInProgress, models.OperationStatusSucceeded}; !equalStatuses(statuses, want) {
+	if claimCalls != 1 {
+		t.Fatalf("expected single claim call, got %d", claimCalls)
+	}
+	if want := []string{models.OperationStatusSucceeded}; !equalStatuses(statuses, want) {
 		t.Fatalf("unexpected status transitions: got %v want %v", statuses, want)
 	}
 }
@@ -508,7 +548,12 @@ func TestOperationProcessorRetriesRuleDeployThenFails(t *testing.T) {
 	var statuses []string
 	var failedMessage string
 	var strategyUpdateCalls int
+	var claimCalls int
 
+	processor.claimOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string) error {
+		claimCalls++
+		return nil
+	}
 	processor.executeOperation = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ models.OperationPayload) error {
 		attempts++
 		return transientErr
@@ -563,7 +608,10 @@ func TestOperationProcessorRetriesRuleDeployThenFails(t *testing.T) {
 	if strategyUpdateCalls != 0 {
 		t.Fatalf("expected no deploy strategy updates for rule retry, got %d", strategyUpdateCalls)
 	}
-	if want := []string{models.OperationStatusInProgress, models.OperationStatusFailed}; !equalStatuses(statuses, want) {
+	if claimCalls != 1 {
+		t.Fatalf("expected single claim call, got %d", claimCalls)
+	}
+	if want := []string{models.OperationStatusFailed}; !equalStatuses(statuses, want) {
 		t.Fatalf("unexpected status transitions: got %v want %v", statuses, want)
 	}
 	if failedMessage == "" || !strings.Contains(failedMessage, transientErr.Error()) {

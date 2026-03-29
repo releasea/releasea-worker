@@ -18,6 +18,7 @@ var errOperationConflict = platformops.ErrOperationConflict
 var ErrOperationNotCompatible = errors.New("operation not compatible with worker")
 
 type fetchOperationFunc func(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager, opID string) (models.OperationPayload, error)
+type claimOperationFunc func(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager, opID string) error
 type updateOperationStatusFunc func(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager, opID, status, errMsg string) error
 type updateDeployStrategyStatusFunc func(
 	ctx context.Context,
@@ -42,6 +43,7 @@ type waitFunc func(ctx context.Context, duration time.Duration) error
 
 type operationProcessor struct {
 	fetchOperation             fetchOperationFunc
+	claimOperationStatus       claimOperationFunc
 	updateOperationStatus      updateOperationStatusFunc
 	updateDeployStrategyStatus updateDeployStrategyStatusFunc
 	executeOperation           executeOperationFunc
@@ -67,6 +69,7 @@ func processOperation(ctx context.Context, client *http.Client, cfg models.Confi
 func newDefaultOperationProcessor() operationProcessor {
 	return operationProcessor{
 		fetchOperation:             platformops.FetchOperation,
+		claimOperationStatus:       platformops.ClaimOperation,
 		updateOperationStatus:      platformops.UpdateOperationStatus,
 		updateDeployStrategyStatus: platformops.UpdateDeployStrategyStatus,
 		executeOperation:           executeOperation,
@@ -224,7 +227,7 @@ func stringPayload(raw interface{}) string {
 }
 
 func (p operationProcessor) claimOperation(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager, operationID string) (bool, error) {
-	if err := p.updateOperationStatus(ctx, client, cfg, tokens, operationID, models.OperationStatusInProgress, ""); err != nil {
+	if err := p.claimOperationStatus(ctx, client, cfg, tokens, operationID); err != nil {
 		if errors.Is(err, errOperationConflict) {
 			log.Printf("[worker] operation %s already claimed, skipping", operationID)
 			return false, nil

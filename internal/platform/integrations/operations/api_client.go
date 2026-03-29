@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"releaseaworker/internal/platform/auth"
+	platformcorrelation "releaseaworker/internal/platform/correlation"
 	httpheaders "releaseaworker/internal/platform/http/headers"
 	"releaseaworker/internal/platform/models"
 	"strconv"
@@ -15,6 +16,17 @@ import (
 )
 
 var ErrOperationConflict = errors.New("operation conflict")
+
+type operationClaimPayload struct {
+	TTLSeconds int    `json:"ttlSeconds,omitempty"`
+	QueueName  string `json:"queueName,omitempty"`
+}
+
+type updateOperationStatusPayload struct {
+	Status string                 `json:"status"`
+	Error  string                 `json:"error,omitempty"`
+	Claim  *operationClaimPayload `json:"claim,omitempty"`
+}
 
 func FetchQueuedOperations(ctx context.Context, client *http.Client, cfg models.Config, tokens *auth.TokenManager) ([]models.OperationPayload, error) {
 	endpoint := cfg.ApiBaseURL + "/operations?status=" + models.OperationStatusQueued + "&fairness=resource&limit=50"
@@ -54,11 +66,48 @@ func FetchOperation(ctx context.Context, client *http.Client, cfg models.Config,
 	return op, nil
 }
 
-func UpdateOperationStatus(ctx context.Context, client *http.Client, cfg models.Config, tokens *auth.TokenManager, opID, status, errMsg string) error {
-	payload := map[string]string{"status": status}
-	if errMsg != "" {
-		payload["error"] = errMsg
+func RecoverStaleOperationClaims(ctx context.Context, client *http.Client, cfg models.Config, tokens *auth.TokenManager) (models.OperationClaimRecoveryResult, error) {
+	var result models.OperationClaimRecoveryResult
+	err := DoJSONRequest(
+		ctx,
+		client,
+		cfg,
+		tokens,
+		http.MethodPost,
+		cfg.ApiBaseURL+"/operations/recover-stale-claims",
+		nil,
+		&result,
+		"stale operation claim recovery",
+	)
+	return result, err
+}
+
+func ClaimOperation(ctx context.Context, client *http.Client, cfg models.Config, tokens *auth.TokenManager, opID string) error {
+	claim := &operationClaimPayload{
+		TTLSeconds: cfg.OperationClaimLeaseTTL,
+		QueueName:  strings.TrimSpace(cfg.QueueName),
 	}
+	return updateOperationStatus(ctx, client, cfg, tokens, opID, updateOperationStatusPayload{
+		Status: models.OperationStatusInProgress,
+		Claim:  claim,
+	})
+}
+
+func UpdateOperationStatus(ctx context.Context, client *http.Client, cfg models.Config, tokens *auth.TokenManager, opID, status, errMsg string) error {
+	return updateOperationStatus(ctx, client, cfg, tokens, opID, updateOperationStatusPayload{
+		Status: status,
+		Error:  errMsg,
+	})
+}
+
+func updateOperationStatus(
+	ctx context.Context,
+	client *http.Client,
+	cfg models.Config,
+	tokens *auth.TokenManager,
+	opID string,
+	payload updateOperationStatusPayload,
+) error {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
@@ -78,6 +127,7 @@ func UpdateOperationStatus(ctx context.Context, client *http.Client, cfg models.
 		return err
 	}
 	auth.SetAuthHeaders(req, token)
+	httpheaders.SetCorrelationID(req, ensureCorrelationID(ctx))
 	httpheaders.SetContentTypeJSON(req)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -126,6 +176,7 @@ func DoJSONRequest(
 		return err
 	}
 	auth.SetAuthHeaders(req, token)
+	httpheaders.SetCorrelationID(req, ensureCorrelationID(ctx))
 	if len(body) > 0 {
 		httpheaders.SetContentTypeJSON(req)
 	}
@@ -150,6 +201,13 @@ func DoJSONRequest(
 		return err
 	}
 	return nil
+}
+
+func ensureCorrelationID(ctx context.Context) string {
+	if correlationID := platformcorrelation.IDFromContext(ctx); correlationID != "" {
+		return correlationID
+	}
+	return platformcorrelation.NewID()
 }
 
 func AppendDeployLogs(ctx context.Context, client *http.Client, cfg models.Config, tokens *auth.TokenManager, deployID string, lines []string) error {

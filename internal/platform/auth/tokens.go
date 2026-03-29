@@ -37,7 +37,11 @@ func (tm *TokenManager) Get(ctx context.Context, client *http.Client, cfg models
 	defer tm.mu.Unlock()
 
 	if tm.accessToken != "" {
-		if tm.expiresAt.IsZero() || time.Until(tm.expiresAt) > 2*time.Minute {
+		refreshSkew := cfg.TokenRefreshSkew
+		if refreshSkew <= 0 {
+			refreshSkew = 2 * time.Minute
+		}
+		if tm.expiresAt.IsZero() || time.Until(tm.expiresAt) > refreshSkew {
 			return tm.accessToken, nil
 		}
 	}

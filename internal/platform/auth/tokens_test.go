@@ -31,7 +31,7 @@ func TestNewTokenManager(t *testing.T) {
 
 func TestTokenManagerGetAndInvalidate(t *testing.T) {
 	manager := NewTokenManager("access-token")
-	token, err := manager.Get(context.Background(), &http.Client{}, models.Config{})
+	token, err := manager.Get(context.Background(), &http.Client{}, models.Config{TokenRefreshSkew: 2 * time.Minute})
 	if err != nil {
 		t.Fatalf("unexpected get error: %v", err)
 	}
@@ -48,9 +48,23 @@ func TestTokenManagerGetAndInvalidate(t *testing.T) {
 
 func TestTokenManagerGetWithoutToken(t *testing.T) {
 	manager := NewTokenManager("")
-	_, err := manager.Get(context.Background(), &http.Client{}, models.Config{})
+	_, err := manager.Get(context.Background(), &http.Client{}, models.Config{TokenRefreshSkew: 2 * time.Minute})
 	if err == nil {
 		t.Fatalf("expected missing token error")
+	}
+}
+
+func TestTokenManagerRefreshesWhenTokenNearExpiry(t *testing.T) {
+	manager := NewTokenManager("frg_reg_bootstrap")
+	manager.accessToken = "cached-access-token"
+	manager.expiresAt = time.Now().Add(30 * time.Second)
+
+	token, err := manager.Get(context.Background(), &http.Client{}, models.Config{TokenRefreshSkew: 45 * time.Second})
+	if err == nil {
+		t.Fatalf("expected bootstrap exchange error when cached token is inside refresh skew")
+	}
+	if token != "" {
+		t.Fatalf("expected no token on refresh failure, got %q", token)
 	}
 }
 

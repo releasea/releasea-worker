@@ -25,6 +25,9 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	t.Setenv("WORKER_TAGS", "edge,primary")
 	t.Setenv("WORKER_POLL_SECONDS", "7")
 	t.Setenv("WORKER_POLL_LIMIT", "5")
+	t.Setenv("WORKER_QUEUE_PREFETCH", "3")
+	t.Setenv("WORKER_OPERATION_CLAIM_LEASE_SECONDS", "180")
+	t.Setenv("WORKER_TOKEN_REFRESH_SKEW_SECONDS", "240")
 
 	cfg := Load()
 	if cfg.ApiBaseURL != "http://localhost:8080/api/v1" {
@@ -41,5 +44,14 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	}
 	if cfg.PollInterval != 7*time.Second || cfg.PollBatchLimit != 5 {
 		t.Fatalf("unexpected poll settings: interval=%s limit=%d", cfg.PollInterval, cfg.PollBatchLimit)
+	}
+	if cfg.QueuePrefetch != 3 {
+		t.Fatalf("expected queue prefetch 3, got %d", cfg.QueuePrefetch)
+	}
+	if cfg.OperationClaimLeaseTTL != 180 {
+		t.Fatalf("expected operation claim lease ttl 180, got %d", cfg.OperationClaimLeaseTTL)
+	}
+	if cfg.TokenRefreshSkew != 240*time.Second {
+		t.Fatalf("expected token refresh skew 240s, got %s", cfg.TokenRefreshSkew)
 	}
 }

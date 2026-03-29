@@ -39,6 +39,9 @@ type Config struct {
 	StaticNginxNamespace    string
 	PollInterval            time.Duration
 	PollBatchLimit          int
+	QueuePrefetch           int
+	OperationClaimLeaseTTL  int
+	TokenRefreshSkew        time.Duration
 }
 
 func Load() Config {
@@ -81,6 +84,24 @@ func Load() Config {
 		StaticNginxNamespace:    commonenv.String("RELEASEA_STATIC_NGINX_NAMESPACE", "releasea-system"),
 		PollInterval:            time.Duration(commonenv.Int("WORKER_POLL_SECONDS", 20)) * time.Second,
 		PollBatchLimit:          commonenv.Int("WORKER_POLL_LIMIT", 10),
+		QueuePrefetch:           commonenv.Int("WORKER_QUEUE_PREFETCH", 1),
+		OperationClaimLeaseTTL:  commonenv.Int("WORKER_OPERATION_CLAIM_LEASE_SECONDS", 120),
+		TokenRefreshSkew:        time.Duration(commonenv.Int("WORKER_TOKEN_REFRESH_SKEW_SECONDS", 120)) * time.Second,
+	}
+	if cfg.QueuePrefetch < 1 {
+		cfg.QueuePrefetch = 1
+	}
+	if cfg.OperationClaimLeaseTTL < 30 {
+		cfg.OperationClaimLeaseTTL = 30
+	}
+	if cfg.OperationClaimLeaseTTL > 600 {
+		cfg.OperationClaimLeaseTTL = 600
+	}
+	if cfg.TokenRefreshSkew < 30*time.Second {
+		cfg.TokenRefreshSkew = 30 * time.Second
+	}
+	if cfg.TokenRefreshSkew > 15*time.Minute {
+		cfg.TokenRefreshSkew = 15 * time.Minute
 	}
 	if cfg.WorkerID == "" {
 		cfg.WorkerID = cfg.WorkerName

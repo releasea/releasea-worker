@@ -48,6 +48,11 @@ go run ./cmd/main.go
 |---|---|---|
 | `RABBITMQ_URL` | RabbitMQ AMQP URL | `amqp://releasea:releasea@localhost:5672/` |
 | `WORKER_QUEUE` | Queue consumed by this worker | `releasea.worker` |
+| `WORKER_QUEUE_PREFETCH` | Maximum unacked queue messages claimed by this worker at once | `1` |
+| `WORKER_OPERATION_CLAIM_LEASE_SECONDS` | Lease TTL written to claimed operations for stale-claim recovery | `120` |
+| `WORKER_TOKEN_REFRESH_SKEW_SECONDS` | Refresh access tokens before expiry by this many seconds | `120` |
+| `WORKER_QUEUE_DLQ_ENABLE` | Enables a dead-letter queue for terminal broker rejections | `true` |
+| `WORKER_QUEUE_DLQ_NAME` | Dead-letter queue name used when messages are rejected without requeue | `releasea.worker.dead-letter` |
 | `HEARTBEAT_INTERVAL_SECONDS` | Heartbeat interval sent to API | `30` |
 
 ### Polling and Runtime Monitoring
@@ -128,6 +133,9 @@ go run ./cmd/main.go
 
 | Variable | Description | Default |
 |---|---|---|
+| `RABBITMQ_TLS_MODE` | TLS policy for RabbitMQ transport (`auto`, `required`, `disabled`) | `auto` |
+| `RABBITMQ_TLS_REQUIRE` | Force RabbitMQ TLS even outside production env detection | `false` |
+| `RABBITMQ_ALLOW_INSECURE_IN_PRODUCTION` | Escape hatch to allow insecure queue transport in production-like envs | `false` |
 | `RABBITMQ_TLS_ENABLE` | Enables TLS for RabbitMQ connection | `false` |
 | `RABBITMQ_TLS_SERVER_NAME` | TLS server name override | _(empty)_ |
 | `RABBITMQ_TLS_CA_PATH` | CA bundle path | _(empty)_ |

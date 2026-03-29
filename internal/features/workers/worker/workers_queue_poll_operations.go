@@ -41,6 +41,19 @@ func drainQueuedOperations(ctx context.Context, client *http.Client, cfg models.
 		return nil
 	}
 
+	recovery, err := platformops.RecoverStaleOperationClaims(ctx, client, cfg, tokens)
+	if err != nil {
+		return err
+	}
+	if recovery.Recovered > 0 || recovery.Failed > 0 {
+		log.Printf(
+			"[worker] stale operation claim recovery recovered=%d failed=%d scanned=%d",
+			recovery.Recovered,
+			recovery.Failed,
+			recovery.Scanned,
+		)
+	}
+
 	ops, err := platformops.FetchQueuedOperations(ctx, client, cfg, tokens)
 	if err != nil {
 		return err
