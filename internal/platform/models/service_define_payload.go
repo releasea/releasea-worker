@@ -11,6 +11,7 @@ type ServicePayload struct {
 	ProjectID               string                   `json:"projectId"`
 	SCMCredentialID         string                   `json:"scmCredentialId"`
 	AutoDeploy              *bool                    `json:"autoDeploy"`
+	AutoDeployEnvironment   string                   `json:"autoDeployEnvironment"`
 	PauseOnIdle             bool                     `json:"pauseOnIdle"`
 	PauseIdleTimeoutSeconds int                      `json:"pauseIdleTimeoutSeconds"`
 	IsActive                bool                     `json:"isActive"`
