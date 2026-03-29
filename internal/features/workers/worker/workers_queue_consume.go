@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	platformauth "releaseaworker/internal/platform/auth"
+	platformcorrelation "releaseaworker/internal/platform/correlation"
 	"releaseaworker/internal/platform/models"
 	platformqueue "releaseaworker/internal/platform/queue"
 	"time"
@@ -28,15 +29,12 @@ func runConsumer(ctx context.Context, cfg models.Config, tokens *platformauth.To
 	}
 	defer ch.Close()
 
-	_, err = ch.QueueDeclare(
-		cfg.QueueName,
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
+	if err := ch.Qos(cfg.QueuePrefetch, 0, false); err != nil {
+		return err
+	}
+
+	topology := platformqueue.ResolveQueueTopology(cfg.QueueName)
+	if err := platformqueue.DeclareQueueTopology(ch, topology); err != nil {
 		return err
 	}
 
@@ -53,7 +51,11 @@ func runConsumer(ctx context.Context, cfg models.Config, tokens *platformauth.To
 		return err
 	}
 
-	log.Printf("[worker] listening for jobs on %s", cfg.QueueName)
+	if topology.DeadLetterEnabled {
+		log.Printf("[worker] listening for jobs on %s (prefetch=%d dlq=%s)", cfg.QueueName, cfg.QueuePrefetch, topology.DeadLetterQueueName)
+	} else {
+		log.Printf("[worker] listening for jobs on %s (prefetch=%d)", cfg.QueueName, cfg.QueuePrefetch)
+	}
 
 	client := &http.Client{Timeout: 15 * time.Second}
 
@@ -93,6 +95,9 @@ func processJob(ctx context.Context, client *http.Client, cfg models.Config, tok
 	if err := json.Unmarshal(msg.Body, &job); err != nil || job.OperationID == "" {
 		return fmt.Errorf("invalid job payload: %s", string(msg.Body))
 	}
-
-	return processOperationByID(ctx, client, cfg, tokens, job.OperationID)
+	jobCtx := platformcorrelation.WithID(ctx, job.CorrelationID)
+	if platformcorrelation.IDFromContext(jobCtx) == "" {
+		jobCtx = platformcorrelation.WithID(jobCtx, platformcorrelation.NewID())
+	}
+	return processOperationByID(jobCtx, client, cfg, tokens, job.OperationID)
 }

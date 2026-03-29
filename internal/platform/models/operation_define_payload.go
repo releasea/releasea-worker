@@ -1,7 +1,8 @@
 package models
 
 type OperationMessage struct {
-	OperationID string `json:"operationId"`
+	OperationID   string `json:"operationId"`
+	CorrelationID string `json:"correlationId,omitempty"`
 }
 
 type OperationPayload struct {
@@ -16,4 +17,10 @@ type OperationPayload struct {
 	CreatedAt    string                 `json:"createdAt"`
 	StartedAt    string                 `json:"startedAt"`
 	UpdatedAt    string                 `json:"updatedAt"`
+}
+
+type OperationClaimRecoveryResult struct {
+	Recovered int `json:"recovered"`
+	Failed    int `json:"failed"`
+	Scanned   int `json:"scanned"`
 }

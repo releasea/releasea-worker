@@ -53,6 +53,14 @@ func FetchOperation(ctx context.Context, client *http.Client, cfg models.Config,
 	return ops.FetchOperation(ctx, client, cfg, tokens, opID)
 }
 
+func RecoverStaleOperationClaims(ctx context.Context, client *http.Client, cfg models.Config, tokens *TokenManager) (models.OperationClaimRecoveryResult, error) {
+	return ops.RecoverStaleOperationClaims(ctx, client, cfg, tokens)
+}
+
+func ClaimOperation(ctx context.Context, client *http.Client, cfg models.Config, tokens *TokenManager, opID string) error {
+	return ops.ClaimOperation(ctx, client, cfg, tokens, opID)
+}
+
 func UpdateOperationStatus(ctx context.Context, client *http.Client, cfg models.Config, tokens *TokenManager, opID, status, errMsg string) error {
 	return ops.UpdateOperationStatus(ctx, client, cfg, tokens, opID, status, errMsg)
 }
