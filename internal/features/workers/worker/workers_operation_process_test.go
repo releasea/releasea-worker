@@ -139,6 +139,35 @@ func TestOperationProcessorRequeuesIncompatibleEnvironmentOperation(t *testing.T
 	}
 }
 
+func TestOperationProcessorRequeuesNonPreferredClusterOperation(t *testing.T) {
+	processor := newTestOperationProcessor()
+	statusCalls := 0
+	processor.updateOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string, _ string, _ string) error {
+		statusCalls++
+		return nil
+	}
+
+	err := processor.processOperation(context.Background(), &http.Client{}, models.Config{
+		WorkerName:  "worker-prod-west",
+		Environment: "prod",
+		Cluster:     "cluster-west",
+	}, nil, models.OperationPayload{
+		ID:     "op-cluster-preference",
+		Status: models.OperationStatusQueued,
+		Type:   models.OperationTypeServiceDeploy,
+		Payload: map[string]interface{}{
+			"environment":            "prod",
+			"preferredWorkerCluster": "cluster-east",
+		},
+	})
+	if !errors.Is(err, ErrOperationNotCompatible) {
+		t.Fatalf("expected ErrOperationNotCompatible, got %v", err)
+	}
+	if statusCalls != 0 {
+		t.Fatalf("expected no status update before requeue, got %d", statusCalls)
+	}
+}
+
 func TestOperationProcessorSkipsNonQueuedOperation(t *testing.T) {
 	processor := newTestOperationProcessor()
 	statusCalls := 0
