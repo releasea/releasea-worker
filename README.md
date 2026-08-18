@@ -27,6 +27,10 @@ go run ./cmd/main.go
 
 ## Environment Variables
 
+Pre-deploy shell commands are disabled by default. Enable
+`WORKER_ALLOW_PRE_DEPLOY_COMMANDS=true` only on isolated workers that are
+intended to execute repository-provided commands.
+
 ### API and Identity
 
 | Variable | Description | Default |

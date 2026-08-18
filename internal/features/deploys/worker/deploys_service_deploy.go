@@ -723,6 +723,9 @@ func buildAndPushImageFull(
 	}
 
 	if ctxData.Service.PreDeployCommand != "" {
+		if !platformutils.EnvBool("WORKER_ALLOW_PRE_DEPLOY_COMMANDS", false) {
+			return errors.New("pre-deploy commands are disabled on this worker")
+		}
 		log.Printf("[worker] running pre-deploy command for %s", ctxData.Service.Name)
 		if logger != nil {
 			logger.Logf(ctx, "running pre-deploy command")
