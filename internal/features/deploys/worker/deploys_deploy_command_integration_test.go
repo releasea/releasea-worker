@@ -88,6 +88,7 @@ exit 0
 	t.Setenv("FAKE_DOCKER_INSPECT", "registry.example.com/releasea/api@sha256:abc123")
 	t.Setenv("HTTP_PROXY", "http://proxy.internal:3128")
 	t.Setenv("DOCKER_BUILD_NETWORK", "host")
+	t.Setenv("WORKER_ALLOW_PRE_DEPLOY_COMMANDS", "true")
 
 	buildRegistrations := 0
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -228,12 +228,12 @@ func extractDiscoveredContainers(containers []interface{}) []models.DiscoveredCo
 		containerProbes := extractContainerProbes(container)
 		containerCPUMilli, containerMemoryMi := extractContainerResources(container)
 		discovered = append(discovered, models.DiscoveredContainer{
-			Name:     name,
-			Image:    image,
-			Ports:    uniquePositiveInts(extractContainerPorts([]interface{}{container})),
-			Imported: !importedAssigned,
-			HealthCheckPath: preferredProbeHealthCheckPath(containerProbes),
-			Probes:          containerProbes,
+			Name:                 name,
+			Image:                image,
+			Ports:                uniquePositiveInts(extractContainerPorts([]interface{}{container})),
+			Imported:             !importedAssigned,
+			HealthCheckPath:      preferredProbeHealthCheckPath(containerProbes),
+			Probes:               containerProbes,
 			EnvironmentVariables: extractContainerEnvVars(container),
 			Command:              stringSliceValue(container["command"]),
 			Args:                 stringSliceValue(container["args"]),
