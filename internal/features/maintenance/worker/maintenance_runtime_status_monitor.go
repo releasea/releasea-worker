@@ -168,9 +168,16 @@ func handlePauseWhenIdle(
 		}
 		if hasTraffic {
 			targetReplicas := resumeReplicas(service)
+			autoscalerErr := restoreIdleAutoscaler(ctx, kubeHTTP, kubeToken, namespace, serviceName, service)
+			if autoscalerErr != nil {
+				log.Printf("[worker] idle autoscaler restore failed service=%s: %v", service.ID, autoscalerErr)
+			}
 			if err := platformkube.ScaleDeployment(ctx, namespace, serviceName, targetReplicas); err != nil {
 				log.Printf("[worker] idle resume failed service=%s replicas=%d: %v", service.ID, targetReplicas, err)
 				return true, "unknown", "Failed to resume from idle state"
+			}
+			if autoscalerErr != nil {
+				return true, "pending", fmt.Sprintf("Resuming from idle state (%d replicas); autoscaler restoration pending", targetReplicas)
 			}
 			return true, "pending", fmt.Sprintf("Resuming from idle state (%d replicas)", targetReplicas)
 		}
@@ -186,11 +193,96 @@ func handlePauseWhenIdle(
 		return false, "", ""
 	}
 
+	if err := suspendIdleAutoscaler(ctx, kubeHTTP, kubeToken, namespace, serviceName, service); err != nil {
+		log.Printf("[worker] idle autoscaler suspend failed service=%s: %v", service.ID, err)
+		return true, "unknown", "Unable to suspend autoscaling before idle pause"
+	}
 	if err := platformkube.ScaleDeployment(ctx, namespace, serviceName, 0); err != nil {
 		log.Printf("[worker] idle pause failed service=%s: %v", service.ID, err)
 		return true, "unknown", "Failed to pause after idle period"
 	}
 	return true, "idle", idleReason
+}
+
+func idleAutoscalerEnabled(service models.ServicePayload) bool {
+	if strings.EqualFold(strings.TrimSpace(service.DeployTemplateID), "tpl-cronjob") {
+		return false
+	}
+	strategyType := strings.ToLower(strings.TrimSpace(service.DeploymentStrategy.Type))
+	if strategyType == "canary" || strategyType == "blue-green" {
+		return false
+	}
+	minReplicas := resumeReplicas(service)
+	return service.MaxReplicas > minReplicas
+}
+
+func suspendIdleAutoscaler(
+	ctx context.Context,
+	client *http.Client,
+	token string,
+	namespace string,
+	serviceName string,
+	service models.ServicePayload,
+) error {
+	if !idleAutoscalerEnabled(service) {
+		return nil
+	}
+	return platformkube.DeleteResource(ctx, client, token, "autoscaling/v2", "HorizontalPodAutoscaler", namespace, serviceName)
+}
+
+func restoreIdleAutoscaler(
+	ctx context.Context,
+	client *http.Client,
+	token string,
+	namespace string,
+	serviceName string,
+	service models.ServicePayload,
+) error {
+	if !idleAutoscalerEnabled(service) {
+		return nil
+	}
+	return platformkube.ApplyResource(ctx, client, token, idleAutoscalerResource(namespace, serviceName, service))
+}
+
+func idleAutoscalerResource(namespace string, serviceName string, service models.ServicePayload) map[string]interface{} {
+	minReplicas := resumeReplicas(service)
+	targetCPU := service.CPU
+	if targetCPU <= 0 {
+		targetCPU = 70
+	}
+	return map[string]interface{}{
+		"apiVersion": "autoscaling/v2",
+		"kind":       "HorizontalPodAutoscaler",
+		"metadata": map[string]interface{}{
+			"name":      serviceName,
+			"namespace": namespace,
+			"labels": map[string]interface{}{
+				"app":              serviceName,
+				"releasea.service": service.ID,
+			},
+		},
+		"spec": map[string]interface{}{
+			"scaleTargetRef": map[string]interface{}{
+				"apiVersion": "apps/v1",
+				"kind":       "Deployment",
+				"name":       serviceName,
+			},
+			"minReplicas": minReplicas,
+			"maxReplicas": service.MaxReplicas,
+			"metrics": []interface{}{
+				map[string]interface{}{
+					"type": "Resource",
+					"resource": map[string]interface{}{
+						"name": "cpu",
+						"target": map[string]interface{}{
+							"type":               "Utilization",
+							"averageUtilization": targetCPU,
+						},
+					},
+				},
+			},
+		},
+	}
 }
 
 func hasRequestActivity(
