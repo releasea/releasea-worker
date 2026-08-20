@@ -7,19 +7,28 @@ import (
 	"net/http"
 	"regexp"
 	"releaseaworker/internal/platform/auth"
+	platformcorrelation "releaseaworker/internal/platform/correlation"
 	ops "releaseaworker/internal/platform/integrations/operations"
 	"releaseaworker/internal/platform/models"
 	deploystrategy "releaseaworker/internal/platform/shared"
 	"strings"
+	"time"
 )
 
+type deployLogBatch struct {
+	id    string
+	lines []string
+}
+
 type DeployLogger struct {
-	deployID string
-	client   *http.Client
-	cfg      models.Config
-	tokens   *auth.TokenManager
-	buffer   []string
-	maxBatch int
+	deployID  string
+	client    *http.Client
+	cfg       models.Config
+	tokens    *auth.TokenManager
+	buffer    []string
+	pending   []deployLogBatch
+	maxBatch  int
+	sendBatch func(context.Context, string, []string) error
 }
 
 type logSanitizerRule struct {
@@ -52,13 +61,17 @@ func NewDeployLogger(client *http.Client, cfg models.Config, tokens *auth.TokenM
 	if deployID == "" {
 		return nil
 	}
-	return &DeployLogger{
+	logger := &DeployLogger{
 		deployID: deployID,
 		client:   client,
 		cfg:      cfg,
 		tokens:   tokens,
 		maxBatch: 50,
 	}
+	logger.sendBatch = func(ctx context.Context, batchID string, lines []string) error {
+		return ops.AppendDeployLogs(ctx, logger.client, logger.cfg, logger.tokens, logger.deployID, batchID, lines)
+	}
+	return logger
 }
 
 func (logger *DeployLogger) Logf(ctx context.Context, format string, args ...interface{}) {
@@ -86,13 +99,38 @@ func (logger *DeployLogger) AppendLines(ctx context.Context, lines []string) {
 }
 
 func (logger *DeployLogger) Flush(ctx context.Context) {
-	if logger == nil || len(logger.buffer) == 0 {
+	if logger == nil {
 		return
 	}
-	if err := ops.AppendDeployLogs(ctx, logger.client, logger.cfg, logger.tokens, logger.deployID, logger.buffer); err != nil {
-		log.Printf("[worker] deploy log flush failed: %v", err)
+	if len(logger.buffer) > 0 {
+		logger.pending = append(logger.pending, deployLogBatch{
+			id:    platformcorrelation.NewID(),
+			lines: append([]string(nil), logger.buffer...),
+		})
+		logger.buffer = nil
 	}
-	logger.buffer = nil
+	for len(logger.pending) > 0 {
+		batch := logger.pending[0]
+		var err error
+		for attempt := 0; attempt < 3; attempt++ {
+			err = logger.sendBatch(ctx, batch.id, batch.lines)
+			if err == nil {
+				break
+			}
+			if attempt < 2 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Duration(attempt+1) * 100 * time.Millisecond):
+				}
+			}
+		}
+		if err != nil {
+			log.Printf("[worker] deploy log flush failed after retries: %v", err)
+			return
+		}
+		logger.pending = logger.pending[1:]
+	}
 }
 
 func (logger *DeployLogger) UpdateStrategy(ctx context.Context, service models.ServiceConfig, phase, summary string, extraDetails map[string]interface{}) {
