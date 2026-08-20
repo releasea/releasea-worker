@@ -9,6 +9,7 @@ const (
 	OperationStatusFailed     = "failed"
 
 	OperationTypeServiceDeploy        = "service.deploy"
+	OperationTypeServiceScale         = "service.scale"
 	OperationTypeServicePromoteCanary = "service.promote-canary"
 	OperationTypeServiceDelete        = "service.delete"
 	OperationTypeRuleDeploy           = "rule.deploy"
@@ -19,6 +20,7 @@ const (
 
 var operationTypeCatalogOrder = []string{
 	OperationTypeServiceDeploy,
+	OperationTypeServiceScale,
 	OperationTypeServicePromoteCanary,
 	OperationTypeServiceDelete,
 	OperationTypeRuleDeploy,

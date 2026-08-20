@@ -265,6 +265,35 @@ func TestOperationProcessorHandlesSuccessConflict(t *testing.T) {
 	}
 }
 
+func TestOperationProcessorStopsWhenLeaseRenewalFails(t *testing.T) {
+	processor := newTestOperationProcessor()
+	processor.renewOperationClaim = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string) error {
+		return errOperationConflict
+	}
+	processor.claimHeartbeatInterval = func(models.Config) time.Duration { return time.Millisecond }
+	processor.executeOperation = func(ctx context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ models.OperationPayload) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	var terminalUpdates int
+	processor.updateOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string, _ string, _ string) error {
+		terminalUpdates++
+		return nil
+	}
+
+	err := processor.processOperation(context.Background(), &http.Client{}, models.Config{OperationClaimLeaseTTL: 30}, nil, models.OperationPayload{
+		ID:     "op-lease-lost",
+		Status: models.OperationStatusQueued,
+		Type:   models.OperationTypeServiceDeploy,
+	})
+	if !errors.Is(err, ErrOperationLeaseLost) {
+		t.Fatalf("expected ErrOperationLeaseLost, got %v", err)
+	}
+	if terminalUpdates != 0 {
+		t.Fatalf("lost lease must not publish a terminal status, got %d updates", terminalUpdates)
+	}
+}
+
 func TestOperationProcessorFailOperationWithRollback(t *testing.T) {
 	processor := newTestOperationProcessor()
 	execErr := errors.New("boom")
@@ -309,7 +338,7 @@ func TestOperationProcessorFailOperationWithRollback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
-	if len(strategyStatuses) == 0 || strategyStatuses[0] != "rollback" {
+	if len(strategyStatuses) == 0 || strategyStatuses[0] != "rolling-back" {
 		t.Fatalf("expected rollback strategy update, got %v", strategyStatuses)
 	}
 	if claimCalls != 1 {

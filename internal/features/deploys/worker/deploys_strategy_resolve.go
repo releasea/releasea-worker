@@ -56,7 +56,7 @@ const (
 	deployStatusProgressing = "progressing"
 	deployStatusPromoting   = "promoting"
 	deployStatusCompleted   = "completed"
-	deployStatusRollback    = "rollback"
+	deployStatusRollback    = "rolling-back"
 	deployStatusFailed      = "failed"
 	deployStatusRetrying    = "retrying"
 )
