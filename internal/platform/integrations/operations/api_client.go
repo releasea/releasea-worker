@@ -93,6 +93,20 @@ func ClaimOperation(ctx context.Context, client *http.Client, cfg models.Config,
 	})
 }
 
+// RenewOperationClaim extends the lease held by the current worker. The API
+// treats a repeated in-progress update from the owner as a heartbeat, not as a
+// second claim.
+func RenewOperationClaim(ctx context.Context, client *http.Client, cfg models.Config, tokens *auth.TokenManager, opID string) error {
+	claim := &operationClaimPayload{
+		TTLSeconds: cfg.OperationClaimLeaseTTL,
+		QueueName:  strings.TrimSpace(cfg.QueueName),
+	}
+	return updateOperationStatus(ctx, client, cfg, tokens, opID, updateOperationStatusPayload{
+		Status: models.OperationStatusInProgress,
+		Claim:  claim,
+	})
+}
+
 func UpdateOperationStatus(ctx context.Context, client *http.Client, cfg models.Config, tokens *auth.TokenManager, opID, status, errMsg string) error {
 	return updateOperationStatus(ctx, client, cfg, tokens, opID, updateOperationStatusPayload{
 		Status: status,
@@ -210,12 +224,15 @@ func ensureCorrelationID(ctx context.Context) string {
 	return platformcorrelation.NewID()
 }
 
-func AppendDeployLogs(ctx context.Context, client *http.Client, cfg models.Config, tokens *auth.TokenManager, deployID string, lines []string) error {
+func AppendDeployLogs(ctx context.Context, client *http.Client, cfg models.Config, tokens *auth.TokenManager, deployID, logBatchID string, lines []string) error {
 	if deployID == "" || len(lines) == 0 {
 		return nil
 	}
 	endpoint := cfg.ApiBaseURL + "/deploys/" + deployID + "/logs"
-	return appendOperationPayload(ctx, client, cfg, tokens, endpoint, map[string]interface{}{"lines": lines}, "deploy logs update")
+	return appendOperationPayload(ctx, client, cfg, tokens, endpoint, map[string]interface{}{
+		"lines":      lines,
+		"logBatchId": strings.TrimSpace(logBatchID),
+	}, "deploy logs update")
 }
 
 func AppendRuleLogs(ctx context.Context, client *http.Client, cfg models.Config, tokens *auth.TokenManager, ruleID string, lines []string) error {
