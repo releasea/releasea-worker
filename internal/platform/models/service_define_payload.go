@@ -18,6 +18,7 @@ type ServicePayload struct {
 	Replicas                int                      `json:"replicas"`
 	MinReplicas             int                      `json:"minReplicas"`
 	MaxReplicas             int                      `json:"maxReplicas"`
+	CPU                     int                      `json:"cpu"`
 	Port                    int                      `json:"port"`
 	DeployTemplateID        string                   `json:"deployTemplateId"`
 	DeploymentStrategy      DeploymentStrategyConfig `json:"deploymentStrategy"`

@@ -19,6 +19,46 @@ func TestResumeReplicas(t *testing.T) {
 	}
 }
 
+func TestIdleAutoscalerLifecycleConfiguration(t *testing.T) {
+	service := models.ServicePayload{
+		ID:                 "svc-1",
+		MinReplicas:        2,
+		MaxReplicas:        5,
+		CPU:                65,
+		DeployTemplateID:   "tpl-git",
+		DeploymentStrategy: models.DeploymentStrategyConfig{Type: "rolling"},
+	}
+	if !idleAutoscalerEnabled(service) {
+		t.Fatalf("expected rolling service with scaling range to use an autoscaler")
+	}
+
+	resource := idleAutoscalerResource("apps", "payments", service)
+	spec, ok := resource["spec"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected autoscaler spec")
+	}
+	if spec["minReplicas"] != 2 || spec["maxReplicas"] != 5 {
+		t.Fatalf("unexpected autoscaler bounds: %#v", spec)
+	}
+	metrics := spec["metrics"].([]interface{})
+	metric := metrics[0].(map[string]interface{})
+	resourceMetric := metric["resource"].(map[string]interface{})
+	target := resourceMetric["target"].(map[string]interface{})
+	if target["averageUtilization"] != 65 {
+		t.Fatalf("expected configured CPU target, got %#v", target["averageUtilization"])
+	}
+
+	service.DeploymentStrategy.Type = "canary"
+	if idleAutoscalerEnabled(service) {
+		t.Fatalf("expected canary strategy to keep HPA lifecycle disabled")
+	}
+	service.DeploymentStrategy.Type = "rolling"
+	service.DeployTemplateID = "tpl-cronjob"
+	if idleAutoscalerEnabled(service) {
+		t.Fatalf("expected scheduled jobs to keep HPA lifecycle disabled")
+	}
+}
+
 func TestResolvePauseIdleWindow(t *testing.T) {
 	t.Setenv("WORKER_PAUSE_IDLE_DEFAULT_SECONDS", "120")
 	if got := resolvePauseIdleWindow(models.ServicePayload{}); got != 120*time.Second {
