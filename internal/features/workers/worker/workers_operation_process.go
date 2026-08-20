@@ -154,7 +154,7 @@ func (p operationProcessor) processOperation(ctx context.Context, client *http.C
 
 func operationCompatibleWithWorker(cfg models.Config, op models.OperationPayload) (bool, string) {
 	operationEnvironment := strings.TrimSpace(stringPayload(op.Payload["environment"]))
-	if operationEnvironment != "" {
+	if operationEnvironment != "" && !operationAllowsEnvironmentFallback(op.Type) {
 		workerNamespace := shared.ResolveAppNamespace(cfg.Environment)
 		operationNamespace := shared.ResolveAppNamespace(operationEnvironment)
 		if workerNamespace != operationNamespace {
@@ -183,6 +183,15 @@ func operationCompatibleWithWorker(cfg models.Config, op models.OperationPayload
 	}
 
 	return true, ""
+}
+
+func operationAllowsEnvironmentFallback(operationType string) bool {
+	switch operationType {
+	case models.OperationTypeServiceDelete, models.OperationTypeRuleDelete:
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeWorkerTags(tags []string) []string {
