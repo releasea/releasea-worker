@@ -112,30 +112,28 @@ func TestOperationProcessorRequeuesIncompatibleTaggedOperation(t *testing.T) {
 	}
 }
 
-func TestOperationProcessorRequeuesIncompatibleEnvironmentOperation(t *testing.T) {
-	processor := newTestOperationProcessor()
-	statusCalls := 0
-	processor.updateOperationStatus = func(_ context.Context, _ *http.Client, _ models.Config, _ *platformauth.TokenManager, _ string, _ string, _ string) error {
-		statusCalls++
-		return nil
+func TestOperationCompatibilityAllowsDeleteFallbackAcrossEnvironments(t *testing.T) {
+	cfg := models.Config{WorkerName: "worker-dev", Environment: "dev"}
+	for _, operationType := range []string{models.OperationTypeServiceDelete, models.OperationTypeRuleDelete} {
+		compatible, reason := operationCompatibleWithWorker(cfg, models.OperationPayload{
+			Type: operationType,
+			Payload: map[string]interface{}{
+				"environment": "prod",
+			},
+		})
+		if !compatible {
+			t.Fatalf("expected %s to allow environment fallback, got %q", operationType, reason)
+		}
 	}
+}
 
-	err := processor.processOperation(context.Background(), &http.Client{}, models.Config{
-		WorkerName:  "worker-dev",
-		Environment: "dev",
-	}, nil, models.OperationPayload{
-		ID:     "op-env-mismatch",
-		Status: models.OperationStatusQueued,
-		Type:   models.OperationTypeServiceDelete,
-		Payload: map[string]interface{}{
-			"environment": "prod",
-		},
-	})
-	if !errors.Is(err, ErrOperationNotCompatible) {
-		t.Fatalf("expected ErrOperationNotCompatible, got %v", err)
-	}
-	if statusCalls != 0 {
-		t.Fatalf("expected no status update before requeue, got %d", statusCalls)
+func TestOperationCompatibilityStillRejectsDeployAcrossEnvironments(t *testing.T) {
+	compatible, _ := operationCompatibleWithWorker(
+		models.Config{WorkerName: "worker-dev", Environment: "dev"},
+		models.OperationPayload{Type: models.OperationTypeServiceDeploy, Payload: map[string]interface{}{"environment": "prod"}},
+	)
+	if compatible {
+		t.Fatalf("expected deploy to remain bound to its environment namespace")
 	}
 }
 
