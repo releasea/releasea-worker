@@ -3,6 +3,7 @@ package workers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	deploymodule "releaseaworker/internal/features/deploys/worker"
@@ -16,6 +17,7 @@ import (
 
 var errOperationConflict = platformops.ErrOperationConflict
 var ErrOperationNotCompatible = errors.New("operation not compatible with worker")
+var ErrOperationLeaseLost = errors.New("operation lease lost")
 
 type fetchOperationFunc func(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager, opID string) (models.OperationPayload, error)
 type claimOperationFunc func(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager, opID string) error
@@ -44,6 +46,7 @@ type waitFunc func(ctx context.Context, duration time.Duration) error
 type operationProcessor struct {
 	fetchOperation             fetchOperationFunc
 	claimOperationStatus       claimOperationFunc
+	renewOperationClaim        claimOperationFunc
 	updateOperationStatus      updateOperationStatusFunc
 	updateDeployStrategyStatus updateDeployStrategyStatusFunc
 	executeOperation           executeOperationFunc
@@ -54,6 +57,7 @@ type operationProcessor struct {
 	deployRetryDelay           retryDelayFunc
 	deployRetryMaxAttempts     retryAttemptsFunc
 	wait                       waitFunc
+	claimHeartbeatInterval     func(models.Config) time.Duration
 }
 
 var defaultOperationProcessor = newDefaultOperationProcessor()
@@ -70,6 +74,7 @@ func newDefaultOperationProcessor() operationProcessor {
 	return operationProcessor{
 		fetchOperation:             platformops.FetchOperation,
 		claimOperationStatus:       platformops.ClaimOperation,
+		renewOperationClaim:        platformops.RenewOperationClaim,
 		updateOperationStatus:      platformops.UpdateOperationStatus,
 		updateDeployStrategyStatus: platformops.UpdateDeployStrategyStatus,
 		executeOperation:           executeOperation,
@@ -92,6 +97,13 @@ func newDefaultOperationProcessor() operationProcessor {
 			return attempts
 		},
 		wait: waitWithContext,
+		claimHeartbeatInterval: func(cfg models.Config) time.Duration {
+			interval := time.Duration(cfg.OperationClaimLeaseTTL) * time.Second / 3
+			if interval < 10*time.Second {
+				return 10 * time.Second
+			}
+			return interval
+		},
 	}
 }
 
@@ -134,9 +146,13 @@ func (p operationProcessor) processOperation(ctx context.Context, client *http.C
 	}
 
 	log.Printf("[worker] processing operation %s type=%s", op.ID, op.Type)
-	execErr := p.executeWithRetry(ctx, client, cfg, tokens, op)
+	execErr := p.executeWithLeaseHeartbeat(ctx, client, cfg, tokens, op)
 
 	if execErr != nil {
+		if errors.Is(execErr, ErrOperationLeaseLost) {
+			log.Printf("[worker] operation %s stopped because its claim could not be renewed: %v", op.ID, execErr)
+			return execErr
+		}
 		return p.failOperation(ctx, client, cfg, tokens, op, execErr)
 	}
 
@@ -150,6 +166,58 @@ func (p operationProcessor) processOperation(ctx context.Context, client *http.C
 
 	log.Printf("[worker] operation %s completed", op.ID)
 	return nil
+}
+
+func (p operationProcessor) executeWithLeaseHeartbeat(
+	ctx context.Context,
+	client *http.Client,
+	cfg models.Config,
+	tokens *platformauth.TokenManager,
+	op models.OperationPayload,
+) error {
+	if p.renewOperationClaim == nil || p.claimHeartbeatInterval == nil || cfg.OperationClaimLeaseTTL <= 0 {
+		return p.executeWithRetry(ctx, client, cfg, tokens, op)
+	}
+
+	executionCtx, cancelExecution := context.WithCancel(ctx)
+	defer cancelExecution()
+	stopHeartbeat := make(chan struct{})
+	heartbeatStopped := make(chan struct{})
+	heartbeatErr := make(chan error, 1)
+	interval := p.claimHeartbeatInterval(cfg)
+	if interval <= 0 {
+		interval = 10 * time.Second
+	}
+
+	go func() {
+		defer close(heartbeatStopped)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopHeartbeat:
+				return
+			case <-executionCtx.Done():
+				return
+			case <-ticker.C:
+				if err := p.renewOperationClaim(executionCtx, client, cfg, tokens, op.ID); err != nil {
+					heartbeatErr <- err
+					cancelExecution()
+					return
+				}
+			}
+		}
+	}()
+
+	execErr := p.executeWithRetry(executionCtx, client, cfg, tokens, op)
+	close(stopHeartbeat)
+	<-heartbeatStopped
+	select {
+	case err := <-heartbeatErr:
+		return fmt.Errorf("%w: %v", ErrOperationLeaseLost, err)
+	default:
+		return execErr
+	}
 }
 
 func operationCompatibleWithWorker(cfg models.Config, op models.OperationPayload) (bool, string) {
@@ -398,9 +466,9 @@ func (p operationProcessor) updateDeployFailureStatus(
 			cfg,
 			tokens,
 			op.DeployID,
-			"rollback",
+			"rolling-back",
 			strategyType,
-			"rollback",
+			"rolling-back",
 			rollbackSummary(strategyType),
 			rollbackDetails,
 		); err != nil {

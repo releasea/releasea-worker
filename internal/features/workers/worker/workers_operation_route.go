@@ -13,6 +13,7 @@ import (
 	platformkube "releaseaworker/internal/platform/integrations/kubernetes"
 	platformops "releaseaworker/internal/platform/integrations/operations"
 	"releaseaworker/internal/platform/models"
+	platformshared "releaseaworker/internal/platform/shared"
 	"time"
 )
 
@@ -22,6 +23,7 @@ var ErrUnsupportedOperationType = errors.New("unsupported operation type")
 
 var defaultOperationExecutors = map[string]operationExecutor{
 	models.OperationTypeServiceDeploy:        executeServiceDeploy,
+	models.OperationTypeServiceScale:         executeServiceScale,
 	models.OperationTypeServicePromoteCanary: deploymodule.HandlePromoteCanary,
 	models.OperationTypeServiceDelete:        deploymodule.HandleServiceDelete,
 	models.OperationTypeRuleDeploy:           rulesmodule.HandleRuleDeploy,
@@ -54,6 +56,42 @@ func executeServiceDeploy(ctx context.Context, client *http.Client, cfg models.C
 	defer cancelRuntimeSync()
 	if err := maintenancemodule.UpdateRuntimeStatuses(runtimeSyncCtx, client, cfg, tokens); err != nil {
 		log.Printf("[worker] post-deploy runtime sync failed service=%s env=%s: %v", op.Resource, environment, err)
+	}
+	return nil
+}
+
+func executeServiceScale(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager, op models.OperationPayload) error {
+	service, err := rulesmodule.FetchService(ctx, client, cfg, tokens, op.Resource)
+	if err != nil {
+		return err
+	}
+	if service.Type == "static-site" {
+		return nil
+	}
+	serviceName := platformshared.ToKubeName(service.Name)
+	if serviceName == "" {
+		serviceName = platformshared.ToKubeName(service.ID)
+	}
+	if serviceName == "" {
+		return errors.New("service name is required for scaling")
+	}
+	environment := platformops.PayloadString(op.Payload, "environment")
+	if environment == "" {
+		environment = cfg.Environment
+	}
+	if environment == "" {
+		environment = "prod"
+	}
+	namespace := platformshared.ResolveNamespace(cfg, environment)
+	targets := deploymodule.ResolveServicePayloadDeploymentTargets(service, serviceName)
+	if len(targets) == 0 {
+		targets = []string{serviceName}
+	}
+	replicas := platformops.PayloadInt(op.Payload, "replicas")
+	for _, target := range targets {
+		if err := platformkube.ScaleDeployment(ctx, namespace, target, replicas); err != nil {
+			return fmt.Errorf("scale deployment %s: %w", target, err)
+		}
 	}
 	return nil
 }
