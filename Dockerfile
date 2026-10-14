@@ -31,16 +31,7 @@ RUN mkdir -p /out/cli-plugins && \
     curl -fsSL -o /out/cli-plugins/docker-buildx \
       "https://github.com/docker/buildx/releases/download/v${BUILDX_VERSION}/buildx-v${BUILDX_VERSION}.linux-${arch}" && \
     chmod +x /out/cli-plugins/docker-buildx
-RUN arch="${TARGETARCH:-}" && \
-    if [ -z "${arch}" ]; then \
-      case "$(uname -m)" in \
-        aarch64|arm64) arch="arm64" ;; \
-        x86_64|amd64) arch="amd64" ;; \
-        *) arch="amd64" ;; \
-      esac; \
-    fi && \
-    curl -fsSL -o /out/mc "https://dl.min.io/client/mc/release/linux-${arch}/archive/mc.RELEASE.2024-06-14T16-07-02Z" && \
-    chmod +x /out/mc
+RUN apk add --no-cache mc
 
 # ────────────────────── runtime stage ──────────────────────────────
 FROM alpine:3.20
@@ -58,7 +49,6 @@ RUN apk add --no-cache \
 WORKDIR /app
 COPY --from=builder /out/releasea-worker ./releasea-worker
 COPY --from=builder /out/cli-plugins/docker-buildx /usr/local/libexec/docker/cli-plugins/docker-buildx
-COPY --from=builder /out/mc /usr/local/bin/mc
 
 ENV DOCKER_HOST=tcp://localhost:2375 \
     DOCKER_BUILDKIT=1 \
