@@ -1,5 +1,5 @@
 # ──────────────────────── build stage ──────────────────────────────
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS builder
 ARG BUILDX_VERSION=0.24.0
 ARG TARGETOS
 ARG TARGETARCH
