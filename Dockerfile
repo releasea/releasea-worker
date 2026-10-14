@@ -39,7 +39,7 @@ RUN arch="${TARGETARCH:-}" && \
         *) arch="amd64" ;; \
       esac; \
     fi && \
-    curl -fsSL -o /out/mc "https://dl.min.io/client/mc/release/linux-${arch}/mc" && \
+    curl -fsSL -o /out/mc "https://dl.min.io/client/mc/release/linux-${arch}/archive/mc.RELEASE.2024-06-14T16-07-02Z" && \
     chmod +x /out/mc
 
 # ────────────────────── runtime stage ──────────────────────────────
