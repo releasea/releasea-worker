@@ -116,12 +116,7 @@ func TestPromoteBlueGreenWithObservationAndLogger(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == "/workers/services/svc-1/blue-green/primary":
 			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodGet && r.URL.Path == "/apis/apps/v1/namespaces/"+namespace+"/deployments/api-green":
-			_ = json.NewEncoder(w).Encode(models.DeploymentInfo{
-				Status: models.DeploymentStatus{
-					AvailableReplicas: 1,
-					Replicas:          1,
-				},
-			})
+			_ = json.NewEncoder(w).Encode(settledDeployment(1))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/namespaces/"+namespace+"/pods":
 			_ = json.NewEncoder(w).Encode(models.PodList{Items: []models.PodInfo{}})
 		case r.Method == http.MethodDelete:
@@ -238,13 +233,13 @@ func TestPromoteBlueGreenReadinessFailureRollback(t *testing.T) {
 		"api",
 		nil,
 	)
-	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "unhealthy") {
-		t.Fatalf("expected unhealthy promoted slot error, got %v", err)
+	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "active traffic was kept") {
+		t.Fatalf("expected active traffic to stay in place, got %v", err)
 	}
-	if slotUpdates != 2 {
-		t.Fatalf("expected slot update and rollback update calls, got %d", slotUpdates)
+	if slotUpdates != 0 {
+		t.Fatalf("expected no slot update before the candidate is ready, got %d", slotUpdates)
 	}
 	if canonicalTarget != "api-blue" {
-		t.Fatalf("expected canonical service rollback to api-blue, got %q", canonicalTarget)
+		t.Fatalf("expected canonical service to stay on api-blue, got %q", canonicalTarget)
 	}
 }

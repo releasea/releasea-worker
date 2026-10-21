@@ -135,7 +135,7 @@ func reconcileStrategyResources(
 			return err
 		}
 
-		// Rollback stable to previous version — kubectl apply already updated it, but canary
+		// Rollback stable to previous version - kubectl apply already updated it, but canary
 		// strategy requires stable to keep running the current production version.
 		undoArgs := []string{"rollout", "undo", "deployment/" + serviceName, "-n", namespace}
 		output, undoErr := platformutils.RunCommandWithInput(ctx, "kubectl", undoArgs, "")

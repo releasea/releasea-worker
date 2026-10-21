@@ -17,6 +17,15 @@ func TestRuleAction(t *testing.T) {
 	}
 }
 
+func TestRuleAuthMode(t *testing.T) {
+	if got := RuleAuthMode(models.RulePayload{}); got != "public" {
+		t.Fatalf("expected default public mode, got %q", got)
+	}
+	if got := RuleAuthMode(models.RulePayload{Policy: models.RulePolicyPayload{AuthMode: "JWT"}}); got != "jwt" {
+		t.Fatalf("expected jwt mode, got %q", got)
+	}
+}
+
 func TestBuildDenyPolicyName(t *testing.T) {
 	got := BuildDenyPolicyName("my-service", "rule 01", "")
 	if got != "my-service-deny-rule-01" {
@@ -100,15 +109,23 @@ func TestResolveRuleHostsAndMapGateways(t *testing.T) {
 		t.Fatalf("expected mapped gateways %v, got %v", want, gateways)
 	}
 
-	hosts := resolveRuleHosts(nil, gateways, "api", "apps", cfg)
+	hosts := resolveRuleHosts(nil, gateways, "api", "releasea-apps-development", cfg)
 	if len(hosts) < 2 {
 		t.Fatalf("expected generated internal/external hosts, got %v", hosts)
 	}
-	if !shared.HasHostSuffix(hosts, cfg.InternalDomain) {
-		t.Fatalf("expected internal domain host")
+	if !shared.HasHostSuffix(hosts, cfg.InternalDomain) || !containsHost(hosts, "api-dev.internal.example") {
+		t.Fatalf("expected development internal host, got %v", hosts)
 	}
-	if !shared.HasHostSuffix(hosts, cfg.ExternalDomain) {
-		t.Fatalf("expected external domain host")
+	if !shared.HasHostSuffix(hosts, cfg.ExternalDomain) || !containsHost(hosts, "api-dev.external.example") {
+		t.Fatalf("expected development external host, got %v", hosts)
+	}
+	stagingHosts := resolveRuleHosts(nil, gateways, "api", "releasea-apps-staging", cfg)
+	if !containsHost(stagingHosts, "api-staging.internal.example") {
+		t.Fatalf("expected staging host, got %v", stagingHosts)
+	}
+	prodHosts := resolveRuleHosts(nil, gateways, "api", "releasea-apps-production", cfg)
+	if !containsHost(prodHosts, "api-prod.internal.example") {
+		t.Fatalf("expected production host, got %v", prodHosts)
 	}
 }
 
@@ -154,4 +171,65 @@ func TestBuildRuleVirtualServiceDeny(t *testing.T) {
 	if _, exists := route["route"]; exists {
 		t.Fatalf("deny route must not include traffic route")
 	}
+}
+
+func TestBuildJWTAccessResources(t *testing.T) {
+	rule := models.RulePayload{
+		ID:      "rule-1",
+		Paths:   []string{"/api"},
+		Methods: []string{"get"},
+		Policy: models.RulePolicyPayload{
+			AuthMode:  "jwt",
+			JWTIssuer: "https://id.example.com",
+			JWKSURI:   "https://id.example.com/.well-known/jwks.json",
+			Audiences: []string{"payments-api"},
+		},
+	}
+	service := models.ServicePayload{ID: "svc-1"}
+
+	authentication := buildJWTRequestAuthentication(rule, service, "payments", "apps")
+	if authentication["kind"] != "RequestAuthentication" {
+		t.Fatalf("expected RequestAuthentication, got %#v", authentication["kind"])
+	}
+	authSpec := shared.MapValue(authentication["spec"])
+	jwtRules, ok := authSpec["jwtRules"].([]interface{})
+	if !ok || len(jwtRules) != 1 {
+		t.Fatalf("expected one JWT rule, got %#v", authSpec["jwtRules"])
+	}
+	jwtRule := shared.MapValue(jwtRules[0])
+	if shared.StringValue(jwtRule, "issuer") != rule.Policy.JWTIssuer {
+		t.Fatalf("unexpected issuer: %#v", jwtRule["issuer"])
+	}
+
+	authorization := buildJWTAuthorizationPolicy(rule, service, "payments", "apps")
+	if authorization["kind"] != "AuthorizationPolicy" {
+		t.Fatalf("expected AuthorizationPolicy, got %#v", authorization["kind"])
+	}
+	authorizationSpec := shared.MapValue(authorization["spec"])
+	if shared.StringValue(authorizationSpec, "action") != "DENY" {
+		t.Fatalf("expected missing-principal DENY policy, got %#v", authorizationSpec["action"])
+	}
+	rules, ok := authorizationSpec["rules"].([]interface{})
+	if !ok || len(rules) != 1 {
+		t.Fatalf("expected one authorization rule, got %#v", authorizationSpec["rules"])
+	}
+	entry := shared.MapValue(rules[0])
+	from, ok := entry["from"].([]interface{})
+	if !ok || len(from) != 1 {
+		t.Fatalf("expected source constraint, got %#v", entry["from"])
+	}
+	source := shared.MapValue(shared.MapValue(from[0])["source"])
+	principals, ok := source["notRequestPrincipals"].([]string)
+	if !ok || !reflect.DeepEqual(principals, []string{"*"}) {
+		t.Fatalf("expected unauthenticated-principal match, got %#v", source["notRequestPrincipals"])
+	}
+}
+
+func containsHost(hosts []string, want string) bool {
+	for _, host := range hosts {
+		if host == want {
+			return true
+		}
+	}
+	return false
 }

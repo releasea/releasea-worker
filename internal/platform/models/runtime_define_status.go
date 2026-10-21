@@ -1,9 +1,13 @@
 package models
 
 type DeploymentStatus struct {
-	AvailableReplicas int `json:"availableReplicas"`
-	Replicas          int `json:"replicas"`
-	Conditions        []struct {
+	ObservedGeneration  int `json:"observedGeneration"`
+	Replicas            int `json:"replicas"`
+	UpdatedReplicas     int `json:"updatedReplicas"`
+	ReadyReplicas       int `json:"readyReplicas"`
+	AvailableReplicas   int `json:"availableReplicas"`
+	UnavailableReplicas int `json:"unavailableReplicas"`
+	Conditions          []struct {
 		Type    string `json:"type"`
 		Status  string `json:"status"`
 		Reason  string `json:"reason"`
@@ -12,6 +16,12 @@ type DeploymentStatus struct {
 }
 
 type DeploymentInfo struct {
+	Metadata struct {
+		Generation int `json:"generation"`
+	} `json:"metadata"`
+	Spec struct {
+		Replicas *int `json:"replicas"`
+	} `json:"spec"`
 	Status DeploymentStatus `json:"status"`
 }
 

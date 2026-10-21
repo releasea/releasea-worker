@@ -428,28 +428,62 @@ func updateServiceRuntime(ctx context.Context, client *http.Client, cfg models.C
 	)
 }
 
-func assessRuntimeTargets(ctx context.Context, client *http.Client, token, namespace string, targets []string) (string, string) {
-	worst := runtimeIssue{}
-	anyHealthy := false
+type runtimeAssessment struct {
+	target string
+	status string
+	reason string
+}
 
+func assessRuntimeTargets(ctx context.Context, client *http.Client, token, namespace string, targets []string) (string, string) {
+	results := make([]runtimeAssessment, 0, len(targets))
 	for _, target := range targets {
 		status, reason := assessRuntime(ctx, client, token, namespace, target)
-		if status == "" {
+		results = append(results, runtimeAssessment{target: target, status: status, reason: reason})
+	}
+	return combineRuntimeAssessments(results)
+}
+
+func isRemovedShadowTarget(target, status, reason string) bool {
+	if status != "pending" || strings.TrimSpace(reason) != "deployment not found" {
+		return false
+	}
+	name := strings.ToLower(strings.TrimSpace(target))
+	return strings.HasSuffix(name, "-canary") || strings.HasSuffix(name, "-blue") || strings.HasSuffix(name, "-green")
+}
+
+func combineRuntimeAssessments(results []runtimeAssessment) (string, string) {
+	worst := runtimeIssue{}
+	anyHealthy := false
+	sawTarget := false
+
+	for _, result := range results {
+		if result.status == "" {
 			continue
 		}
-		if status == "healthy" {
+		sawTarget = true
+		if isRemovedShadowTarget(result.target, result.status, result.reason) {
+			continue
+		}
+		if result.status == "healthy" {
 			anyHealthy = true
 			continue
 		}
-		candidate := runtimeIssue{status: status, reason: fmt.Sprintf("%s: %s", target, reason), severity: statusSeverity(status)}
+		candidate := runtimeIssue{
+			status:   result.status,
+			reason:   fmt.Sprintf("%s: %s", result.target, result.reason),
+			severity: statusSeverity(result.status),
+		}
 		worst = maxIssue(worst, candidate)
 	}
 
+	if !sawTarget {
+		return "", ""
+	}
 	if worst.severity == 0 {
 		if anyHealthy {
 			return "healthy", ""
 		}
-		return "", ""
+		return "pending", "deployment not found"
 	}
 	if anyHealthy && worst.severity <= statusSeverity("pending") {
 		return "degraded", worst.reason

@@ -208,6 +208,15 @@ func curateRuleDeploys(ctx context.Context, client *http.Client, cfg models.Conf
 				continue
 			}
 			if exists {
+				gatewayNamespace := rulesmodule.GatewayNamespace(cfg)
+				gatewayPolicy := rulesmodule.GatewayEdgePolicyName(serviceName, rule.ID)
+				gatewayExists, gatewayErr := platformkube.ResourceExists(ctx, kubeClient, kubeToken, "security.istio.io/v1beta1", "AuthorizationPolicy", gatewayNamespace, gatewayPolicy)
+				if gatewayErr != nil || !gatewayExists {
+					if opAgeExceeded(op, maxAge) {
+						_ = platformops.UpdateOperationStatus(ctx, client, cfg, tokens, op.ID, models.OperationStatusFailed, "gateway edge policy missing")
+					}
+					continue
+				}
 				_ = platformops.UpdateOperationStatus(ctx, client, cfg, tokens, op.ID, models.OperationStatusSucceeded, "")
 				continue
 			}
@@ -226,6 +235,29 @@ func curateRuleDeploys(ctx context.Context, client *http.Client, cfg models.Conf
 			continue
 		}
 		if exists {
+			if rulesmodule.RequiresGatewayAuth(rule) {
+				gatewayNamespace := rulesmodule.GatewayNamespace(cfg)
+				gatewayPolicy := rulesmodule.GatewayEdgePolicyName(serviceName, rule.ID)
+				gatewayExists, gatewayErr := platformkube.ResourceExists(ctx, kubeClient, kubeToken, "security.istio.io/v1beta1", "AuthorizationPolicy", gatewayNamespace, gatewayPolicy)
+				if gatewayErr != nil || !gatewayExists {
+					if opAgeExceeded(op, maxAge) {
+						_ = platformops.UpdateOperationStatus(ctx, client, cfg, tokens, op.ID, models.OperationStatusFailed, "gateway edge policy missing")
+					}
+					continue
+				}
+			}
+			if rulesmodule.RuleAuthMode(rule) == "jwt" {
+				authenticationName := rulesmodule.BuildJWTAuthenticationName(serviceName, rule.ID)
+				authorizationName := rulesmodule.BuildJWTAuthorizationPolicyName(serviceName, rule.ID)
+				authenticationExists, authenticationErr := platformkube.ResourceExists(ctx, kubeClient, kubeToken, "security.istio.io/v1beta1", "RequestAuthentication", namespace, authenticationName)
+				authorizationExists, authorizationErr := platformkube.ResourceExists(ctx, kubeClient, kubeToken, "security.istio.io/v1beta1", "AuthorizationPolicy", namespace, authorizationName)
+				if authenticationErr != nil || authorizationErr != nil || !authenticationExists || !authorizationExists {
+					if opAgeExceeded(op, maxAge) {
+						_ = platformops.UpdateOperationStatus(ctx, client, cfg, tokens, op.ID, models.OperationStatusFailed, "JWT access policy resources missing")
+					}
+					continue
+				}
+			}
 			_ = platformops.UpdateOperationStatus(ctx, client, cfg, tokens, op.ID, models.OperationStatusSucceeded, "")
 			continue
 		}

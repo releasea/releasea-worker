@@ -10,8 +10,8 @@ func TestOperationContractCatalogVersion(t *testing.T) {
 
 func TestSupportedOperationTypes(t *testing.T) {
 	supported := SupportedOperationTypes()
-	if len(supported) != 8 {
-		t.Fatalf("supported operation types = %d, want 8", len(supported))
+	if len(supported) != 9 {
+		t.Fatalf("supported operation types = %d, want 9", len(supported))
 	}
 	if supported[0] != OperationTypeServiceDeploy {
 		t.Fatalf("first supported operation type = %q, want %q", supported[0], OperationTypeServiceDeploy)

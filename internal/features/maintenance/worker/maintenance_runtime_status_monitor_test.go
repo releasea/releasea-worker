@@ -7,6 +7,26 @@ import (
 	"time"
 )
 
+func TestCombineRuntimeAssessmentsIgnoresRemovedCanary(t *testing.T) {
+	status, reason := combineRuntimeAssessments([]runtimeAssessment{
+		{target: "go-service", status: "healthy"},
+		{target: "go-service-canary", status: "pending", reason: "deployment not found"},
+	})
+	if status != "healthy" || reason != "" {
+		t.Fatalf("expected a promoted service to stay healthy, got %q %q", status, reason)
+	}
+}
+
+func TestCombineRuntimeAssessmentsKeepsRealCanaryFailure(t *testing.T) {
+	status, reason := combineRuntimeAssessments([]runtimeAssessment{
+		{target: "go-service", status: "healthy"},
+		{target: "go-service-canary", status: "crashloop", reason: "CrashLoopBackOff"},
+	})
+	if status != "crashloop" || !strings.Contains(reason, "go-service-canary") {
+		t.Fatalf("expected the live canary failure to surface, got %q %q", status, reason)
+	}
+}
+
 func TestResumeReplicas(t *testing.T) {
 	if got := resumeReplicas(models.ServicePayload{MinReplicas: 3, Replicas: 1}); got != 3 {
 		t.Fatalf("expected min replicas priority, got %d", got)

@@ -52,18 +52,7 @@ func buildRuleVirtualService(rule models.RulePayload, service models.ServicePayl
 		}
 		spec["tcp"] = []interface{}{tcpRoute}
 	} else {
-		httpRoute := map[string]interface{}{}
-		if matches := buildRuleHTTPMatches(rule.Paths, rule.Methods); len(matches) > 0 {
-			httpRoute["match"] = matches
-		}
-		if isDeny {
-			httpRoute["directResponse"] = map[string]interface{}{
-				"status": 403,
-			}
-		} else {
-			httpRoute["route"] = destinations
-		}
-		spec["http"] = []interface{}{httpRoute}
+		spec["http"] = buildRuleHTTPRoutes(rule, destinations, isDeny)
 	}
 
 	return map[string]interface{}{
@@ -158,6 +147,98 @@ func BuildDenyPolicyName(serviceName, ruleName, ruleID string) string {
 	return strings.Trim(name[:63], "-")
 }
 
+func BuildJWTAuthenticationName(serviceName, ruleID string) string {
+	return buildSecurityResourceName(serviceName, ruleID, "jwt")
+}
+
+func BuildJWTAuthorizationPolicyName(serviceName, ruleID string) string {
+	return buildSecurityResourceName(serviceName, ruleID, "require-auth")
+}
+
+func buildSecurityResourceName(serviceName, ruleID, suffix string) string {
+	servicePart := shared.ToKubeName(serviceName)
+	if servicePart == "" {
+		servicePart = "service"
+	}
+	rulePart := shared.ToKubeName(ruleID)
+	if rulePart == "" {
+		rulePart = "rule"
+	}
+	name := fmt.Sprintf("%s-%s-%s", servicePart, rulePart, suffix)
+	if len(name) <= 63 {
+		return name
+	}
+	return strings.Trim(name[:63], "-")
+}
+
+func RuleAuthMode(rule models.RulePayload) string {
+	switch strings.ToLower(strings.TrimSpace(rule.Policy.AuthMode)) {
+	case "jwt", "apikey", "mtls":
+		return strings.ToLower(strings.TrimSpace(rule.Policy.AuthMode))
+	default:
+		return "public"
+	}
+}
+
+func buildJWTRequestAuthentication(rule models.RulePayload, service models.ServicePayload, serviceName, namespace string) map[string]interface{} {
+	jwtRule := map[string]interface{}{
+		"issuer":  strings.TrimSpace(rule.Policy.JWTIssuer),
+		"jwksUri": strings.TrimSpace(rule.Policy.JWKSURI),
+	}
+	if audiences := shared.UniqueStrings(rule.Policy.Audiences); len(audiences) > 0 {
+		jwtRule["audiences"] = audiences
+	}
+	return map[string]interface{}{
+		"apiVersion": "security.istio.io/v1beta1",
+		"kind":       "RequestAuthentication",
+		"metadata": map[string]interface{}{
+			"name":      BuildJWTAuthenticationName(serviceName, rule.ID),
+			"namespace": namespace,
+			"labels": map[string]interface{}{
+				"app": serviceName, "releasea.rule": rule.ID, "releasea.service": service.ID,
+			},
+		},
+		"spec": map[string]interface{}{
+			"selector": map[string]interface{}{"matchLabels": map[string]interface{}{"app": serviceName}},
+			"jwtRules": []interface{}{jwtRule},
+		},
+	}
+}
+
+func buildJWTAuthorizationPolicy(rule models.RulePayload, service models.ServicePayload, serviceName, namespace string) map[string]interface{} {
+	operation := map[string]interface{}{}
+	if methods := normalizePolicyMethods(rule.Methods); len(methods) > 0 {
+		operation["methods"] = methods
+	}
+	if paths := expandDenyPolicyPaths(rule.Paths); len(paths) > 0 {
+		operation["paths"] = paths
+	}
+	entry := map[string]interface{}{
+		"from": []interface{}{map[string]interface{}{
+			"source": map[string]interface{}{"notRequestPrincipals": []string{"*"}},
+		}},
+	}
+	if len(operation) > 0 {
+		entry["to"] = []interface{}{map[string]interface{}{"operation": operation}}
+	}
+	return map[string]interface{}{
+		"apiVersion": "security.istio.io/v1beta1",
+		"kind":       "AuthorizationPolicy",
+		"metadata": map[string]interface{}{
+			"name":      BuildJWTAuthorizationPolicyName(serviceName, rule.ID),
+			"namespace": namespace,
+			"labels": map[string]interface{}{
+				"app": serviceName, "releasea.rule": rule.ID, "releasea.service": service.ID,
+			},
+		},
+		"spec": map[string]interface{}{
+			"selector": map[string]interface{}{"matchLabels": map[string]interface{}{"app": serviceName}},
+			"action":   "DENY",
+			"rules":    []interface{}{entry},
+		},
+	}
+}
+
 func buildDenyAuthorizationPolicy(rule models.RulePayload, service models.ServicePayload, serviceName, namespace, policyName string) map[string]interface{} {
 	paths := expandDenyPolicyPaths(rule.Paths)
 	methods := normalizePolicyMethods(rule.Methods)
@@ -238,6 +319,44 @@ func normalizePolicyMethods(methods []string) []string {
 	return shared.UniqueStrings(out)
 }
 
+func buildRuleHTTPRoutes(rule models.RulePayload, destinations []interface{}, isDeny bool) []interface{} {
+	matches := buildRuleHTTPMatches(rule.Paths, rule.Methods)
+	primary := map[string]interface{}{
+		"name": EdgeRouteName(rule.ID),
+	}
+	if isDeny {
+		if len(matches) > 0 {
+			primary["match"] = matches
+		}
+		primary["directResponse"] = map[string]interface{}{"status": 403}
+		applyEdgeHTTPPolicy(primary, rule)
+		return []interface{}{primary}
+	}
+	primary["route"] = destinations
+	if positive, gated := edgePositiveMatches(rule); gated {
+		if len(positive) > 0 {
+			primary["match"] = positive
+		}
+		applyEdgeHTTPPolicy(primary, rule)
+		fallback := map[string]interface{}{
+			"directResponse": map[string]interface{}{"status": 401},
+		}
+		if len(matches) > 0 {
+			fallback["match"] = matches
+		}
+		applyEdgeHTTPPolicy(fallback, rule)
+		if len(positive) == 0 {
+			return []interface{}{fallback}
+		}
+		return []interface{}{primary, fallback}
+	}
+	if len(matches) > 0 {
+		primary["match"] = matches
+	}
+	applyEdgeHTTPPolicy(primary, rule)
+	return []interface{}{primary}
+}
+
 func buildRuleHTTPMatches(paths []string, methods []string) []interface{} {
 	if len(paths) == 0 && len(methods) == 0 {
 		return nil
@@ -284,16 +403,35 @@ func normalizeRulePath(value string) string {
 	return path
 }
 
+func environmentHostLabel(namespace string) string {
+	switch {
+	case strings.Contains(namespace, "production"):
+		return "prod"
+	case strings.Contains(namespace, "staging"):
+		return "staging"
+	default:
+		return "dev"
+	}
+}
+
+func environmentQualifiedHost(serviceName, namespace, domain string) string {
+	label := environmentHostLabel(namespace)
+	if label == "" {
+		return fmt.Sprintf("%s.%s", serviceName, domain)
+	}
+	return fmt.Sprintf("%s-%s.%s", serviceName, label, domain)
+}
+
 func resolveRuleHosts(hosts []string, gateways []string, serviceName, namespace string, cfg models.Config) []string {
 	out := shared.UniqueStrings(hosts)
 	if gatewayMatches(gateways, cfg.InternalGateway) && cfg.InternalDomain != "" {
 		if !shared.HasHostSuffix(out, cfg.InternalDomain) {
-			out = append(out, fmt.Sprintf("%s.%s", serviceName, cfg.InternalDomain))
+			out = append(out, environmentQualifiedHost(serviceName, namespace, cfg.InternalDomain))
 		}
 	}
 	if gatewayMatches(gateways, cfg.ExternalGateway) && cfg.ExternalDomain != "" {
 		if !shared.HasHostSuffix(out, cfg.ExternalDomain) {
-			out = append(out, fmt.Sprintf("%s.%s", serviceName, cfg.ExternalDomain))
+			out = append(out, environmentQualifiedHost(serviceName, namespace, cfg.ExternalDomain))
 		}
 	}
 	if len(out) == 0 {

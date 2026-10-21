@@ -43,12 +43,7 @@ func TestHandleServiceDeployRegistryWithKubeSimulation(t *testing.T) {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
-			_ = json.NewEncoder(w).Encode(models.DeploymentInfo{
-				Status: models.DeploymentStatus{
-					AvailableReplicas: 1,
-					Replicas:          1,
-				},
-			})
+			_ = json.NewEncoder(w).Encode(settledDeployment(1))
 			return
 		case r.Method == http.MethodPost && path == "/apis/apps/v1/namespaces/"+namespace+"/deployments":
 			deploymentCreated = true

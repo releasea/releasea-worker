@@ -297,6 +297,21 @@ func ResourceURLs(apiVersion, kind, namespace, name string) (string, string, err
 	case "AuthorizationPolicy":
 		base := fmt.Sprintf("%s/apis/security.istio.io/v1beta1/namespaces/%s/authorizationpolicies", baseURL, namespace)
 		return base + "/" + name, base, nil
+	case "RequestAuthentication":
+		base := fmt.Sprintf("%s/apis/security.istio.io/v1beta1/namespaces/%s/requestauthentications", baseURL, namespace)
+		return base + "/" + name, base, nil
+	case "DestinationRule":
+		base := fmt.Sprintf("%s/apis/networking.istio.io/v1beta1/namespaces/%s/destinationrules", baseURL, namespace)
+		return base + "/" + name, base, nil
+	case "PeerAuthentication":
+		base := fmt.Sprintf("%s/apis/security.istio.io/v1beta1/namespaces/%s/peerauthentications", baseURL, namespace)
+		return base + "/" + name, base, nil
+	case "EnvoyFilter":
+		base := fmt.Sprintf("%s/apis/networking.istio.io/v1alpha3/namespaces/%s/envoyfilters", baseURL, namespace)
+		return base + "/" + name, base, nil
+	case "NetworkPolicy":
+		base := fmt.Sprintf("%s/apis/networking.k8s.io/v1/namespaces/%s/networkpolicies", baseURL, namespace)
+		return base + "/" + name, base, nil
 	default:
 		return "", "", fmt.Errorf("unsupported kind %s (apiVersion %s)", kind, apiVersion)
 	}
