@@ -8,20 +8,22 @@ const (
 	OperationStatusSucceeded  = "succeeded"
 	OperationStatusFailed     = "failed"
 
-	OperationTypeServiceDeploy        = "service.deploy"
-	OperationTypeServiceScale         = "service.scale"
-	OperationTypeServicePromoteCanary = "service.promote-canary"
-	OperationTypeServiceDelete        = "service.delete"
-	OperationTypeRuleDeploy           = "rule.deploy"
-	OperationTypeRulePublish          = "rule.publish"
-	OperationTypeRuleDelete           = "rule.delete"
-	OperationTypeWorkerRestart        = "worker.restart"
+	OperationTypeServiceDeploy          = "service.deploy"
+	OperationTypeServiceScale           = "service.scale"
+	OperationTypeServicePromoteCanary   = "service.promote-canary"
+	OperationTypeServiceSwitchBlueGreen = "service.switch-blue-green"
+	OperationTypeServiceDelete          = "service.delete"
+	OperationTypeRuleDeploy             = "rule.deploy"
+	OperationTypeRulePublish            = "rule.publish"
+	OperationTypeRuleDelete             = "rule.delete"
+	OperationTypeWorkerRestart          = "worker.restart"
 )
 
 var operationTypeCatalogOrder = []string{
 	OperationTypeServiceDeploy,
 	OperationTypeServiceScale,
 	OperationTypeServicePromoteCanary,
+	OperationTypeServiceSwitchBlueGreen,
 	OperationTypeServiceDelete,
 	OperationTypeRuleDeploy,
 	OperationTypeRulePublish,

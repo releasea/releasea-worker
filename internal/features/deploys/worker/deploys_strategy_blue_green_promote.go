@@ -2,7 +2,9 @@ package deploy
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	platformauth "releaseaworker/internal/platform/auth"
 	platformkube "releaseaworker/internal/platform/integrations/kubernetes"
@@ -10,8 +12,73 @@ import (
 	platformlogging "releaseaworker/internal/platform/logging"
 	"releaseaworker/internal/platform/models"
 	"releaseaworker/internal/platform/shared"
+	"strings"
 	"time"
 )
+
+func blueGreenSlotTitle(slot string) string {
+	if strings.EqualFold(strings.TrimSpace(slot), "green") {
+		return "Green"
+	}
+	return "Blue"
+}
+
+type blueGreenStepReporter func(step, summary string)
+
+func HandleSwitchBlueGreen(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager, op models.OperationPayload) error {
+	if op.Resource == "" {
+		return errors.New("service id missing")
+	}
+	environment := platformops.PayloadString(op.Payload, "environment")
+	if environment == "" {
+		environment = "prod"
+	}
+	contextData, err := fetchServiceContext(ctx, client, cfg, tokens, op.Resource, environment)
+	if err != nil {
+		return err
+	}
+	if ResolveDeployStrategyType(contextData.Service) != "blue-green" {
+		return fmt.Errorf("service is not using blue-green strategy")
+	}
+	activeSlot := strings.ToLower(strings.TrimSpace(platformops.PayloadString(op.Payload, "activeSlot")))
+	if activeSlot == "blue" || activeSlot == "green" {
+		contextData.Service.DeploymentStrategy.BlueGreenPrimary = activeSlot
+	}
+	serviceName := shared.ToKubeName(contextData.Service.Name)
+	if serviceName == "" {
+		serviceName = shared.ToKubeName(contextData.Service.ID)
+	}
+	if serviceName == "" {
+		return errors.New("service name invalid")
+	}
+	logger := platformlogging.NewDeployLogger(client, cfg, tokens, op.DeployID)
+	if logger != nil {
+		defer logger.Flush(ctx)
+	}
+	_, err = promoteBlueGreen(
+		ctx,
+		client,
+		cfg,
+		tokens,
+		contextData.Service,
+		op.Resource,
+		environment,
+		serviceName,
+		logger,
+		func(step, summary string) {
+			if logger != nil {
+				logger.Logf(ctx, "blue-green switch %s: %s", step, summary)
+			}
+			if strings.TrimSpace(op.DeployID) == "" {
+				return
+			}
+			if updateErr := platformops.UpdateDeployStrategyStatus(ctx, client, cfg, tokens, op.DeployID, "", "blue-green", "promoting", summary, map[string]interface{}{"step": step}); updateErr != nil {
+				log.Printf("[worker] blue-green switch step %s: %v", step, updateErr)
+			}
+		},
+	)
+	return err
+}
 
 func promoteBlueGreen(
 	ctx context.Context,
@@ -23,7 +90,17 @@ func promoteBlueGreen(
 	environment string,
 	serviceName string,
 	logger *platformlogging.DeployLogger,
+	report ...blueGreenStepReporter,
 ) (string, error) {
+	var notify blueGreenStepReporter
+	if len(report) > 0 {
+		notify = report[0]
+	}
+	reportStep := func(step, summary string) {
+		if notify != nil {
+			notify(step, summary)
+		}
+	}
 	activeSlot, candidateSlot := ResolveBlueGreenSlots(service.DeploymentStrategy.BlueGreenPrimary)
 	activeName := serviceName + "-" + activeSlot
 	candidateName := serviceName + "-" + candidateSlot
@@ -35,8 +112,29 @@ func promoteBlueGreen(
 	}
 
 	if logger != nil {
+		logger.Logf(ctx, "blue-green waiting for %s before moving traffic off %s", candidateName, activeName)
+	}
+	reportStep("ready", fmt.Sprintf("Waiting until %s is fully live", candidateSlot))
+	if err := waitForServiceDeployReadiness(
+		ctx,
+		cfg,
+		environment,
+		namespace,
+		serviceName,
+		[]string{candidateName},
+		service,
+		logger,
+	); err != nil {
+		return "", fmt.Errorf("blue-green candidate is not ready, active traffic was kept: %w", err)
+	}
+	if err := waitForDeploymentRollout(ctx, kubeClient, kubeToken, namespace, candidateName); err != nil {
+		return "", fmt.Errorf("blue-green candidate is not fully live, active traffic was kept: %w", err)
+	}
+
+	if logger != nil {
 		logger.Logf(ctx, "blue-green promoting traffic from %s to %s", activeName, candidateName)
 	}
+	reportStep("shift", fmt.Sprintf("Moving traffic from %s to %s", activeSlot, candidateSlot))
 
 	if err := switchBlueGreenCanonicalService(ctx, kubeClient, kubeToken, namespace, serviceName, candidateName); err != nil {
 		return "", err
@@ -49,6 +147,7 @@ func promoteBlueGreen(
 
 	observedService := service
 	observedService.DeploymentStrategy.BlueGreenPrimary = candidateSlot
+	reportStep("observe", fmt.Sprintf("Watching %s before removing %s", candidateSlot, activeSlot))
 	observationSeconds := shared.EnvInt("WORKER_BLUE_GREEN_OBSERVATION_SECONDS", 30)
 	if observationSeconds < 0 {
 		observationSeconds = 0
@@ -83,17 +182,20 @@ func promoteBlueGreen(
 		}
 	}
 
+	reportStep("cleanup", fmt.Sprintf("Removing the previous %s slot", activeSlot))
 	if err := cleanupBlueGreenSlot(ctx, kubeClient, kubeToken, namespace, activeName, logger); err != nil {
-		if logger != nil {
-			logger.Logf(ctx, "blue-green cleanup warning for %s: %v", activeName, err)
-			logger.Flush(ctx)
-		}
+		return "", fmt.Errorf("previous blue-green slot did not delete: %w", err)
 	}
 	if err := cleanupLegacyRollingWorkload(ctx, kubeClient, kubeToken, namespace, serviceName, logger); err != nil {
-		if logger != nil {
-			logger.Logf(ctx, "blue-green cleanup warning for legacy workload %s: %v", serviceName, err)
-			logger.Flush(ctx)
-		}
+		return "", fmt.Errorf("previous workload did not delete: %w", err)
+	}
+	reportStep("finalize", fmt.Sprintf("Waiting until %s has finished shutting down", activeSlot))
+	if err := waitForRetiredWorkloads(ctx, kubeClient, kubeToken, namespace, []string{activeName}); err != nil {
+		return "", err
+	}
+	if logger != nil {
+		logger.Logf(ctx, "blue-green previous slot %s has finished and %s is fully live", activeName, candidateName)
+		logger.Flush(ctx)
 	}
 
 	return candidateSlot, nil

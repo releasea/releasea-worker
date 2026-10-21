@@ -70,19 +70,37 @@ func HandleRuleDeploy(ctx context.Context, client *http.Client, cfg models.Confi
 		if err := platformkube.EnsureNamespace(ctx, kubeClient, kubeToken, namespace); err != nil {
 			return err
 		}
+		if err := cleanupJWTAccessResources(ctx, kubeClient, kubeToken, namespace, serviceName, rule.ID); err != nil {
+			return err
+		}
 		if len(gateways) == 0 {
 			log.Printf("[worker] rule.deploy rule=%s env=%s namespace=%s action=delete authorizationpolicy=%s", rule.ID, environment, namespace, policyName)
 			if logger != nil {
 				logger.Logf(ctx, "delete authorization policy %s/%s", namespace, policyName)
 			}
-			return platformkube.DeleteResource(ctx, kubeClient, kubeToken, "security.istio.io/v1beta1", "AuthorizationPolicy", namespace, policyName)
+			if err := platformkube.DeleteResource(ctx, kubeClient, kubeToken, "security.istio.io/v1beta1", "AuthorizationPolicy", namespace, policyName); err != nil {
+				return err
+			}
+			if err := platformkube.DeleteResource(ctx, kubeClient, kubeToken, "networking.istio.io/v1beta1", "VirtualService", namespace, RuleVirtualServiceName(serviceName, rule.ID)); err != nil {
+				return err
+			}
+			if err := cleanupJWTAccessResources(ctx, kubeClient, kubeToken, namespace, serviceName, rule.ID); err != nil {
+				return err
+			}
+			return cleanupEdgeResources(ctx, kubeClient, kubeToken, namespace, serviceName, rule.ID, cfg)
 		}
 		policy := buildDenyAuthorizationPolicy(rule, service, serviceName, namespace, policyName)
 		log.Printf("[worker] rule.deploy rule=%s env=%s namespace=%s action=apply authorizationpolicy=%s", rule.ID, environment, namespace, policyName)
 		if logger != nil {
 			logger.Logf(ctx, "apply authorization policy %s/%s", namespace, policyName)
 		}
-		return platformkube.ApplyResource(ctx, kubeClient, kubeToken, policy)
+		if err := platformkube.ApplyResource(ctx, kubeClient, kubeToken, policy); err != nil {
+			return err
+		}
+		if err := platformkube.DeleteResource(ctx, kubeClient, kubeToken, "networking.istio.io/v1beta1", "VirtualService", namespace, RuleVirtualServiceName(serviceName, rule.ID)); err != nil {
+			return err
+		}
+		return reconcileEdgeResources(ctx, kubeClient, kubeToken, namespace, serviceName, rule, service, cfg, gateways)
 	}
 
 	vsName := RuleVirtualServiceName(serviceName, rule.ID)
@@ -98,7 +116,10 @@ func HandleRuleDeploy(ctx context.Context, client *http.Client, cfg models.Confi
 		if err := platformkube.DeleteResource(ctx, kubeClient, kubeToken, "networking.istio.io/v1beta1", "VirtualService", namespace, vsName); err != nil {
 			return err
 		}
-		return nil
+		if err := cleanupJWTAccessResources(ctx, kubeClient, kubeToken, namespace, serviceName, rule.ID); err != nil {
+			return err
+		}
+		return cleanupEdgeResources(ctx, kubeClient, kubeToken, namespace, serviceName, rule.ID, cfg)
 	}
 
 	kubeClient, kubeToken, err := platformkube.KubeClient()
@@ -116,6 +137,16 @@ func HandleRuleDeploy(ctx context.Context, client *http.Client, cfg models.Confi
 		logger.Logf(ctx, "apply virtual service %s/%s gateways=%v", namespace, vsName, gateways)
 	}
 	if err := platformkube.ApplyResource(ctx, kubeClient, kubeToken, vs); err != nil {
+		return err
+	}
+	denyPolicyName := BuildDenyPolicyName(serviceName, rule.Name, rule.ID)
+	if err := platformkube.DeleteResource(ctx, kubeClient, kubeToken, "security.istio.io/v1beta1", "AuthorizationPolicy", namespace, denyPolicyName); err != nil {
+		return err
+	}
+	if err := reconcileJWTAccessResources(ctx, kubeClient, kubeToken, namespace, serviceName, rule, service); err != nil {
+		return err
+	}
+	if err := reconcileEdgeResources(ctx, kubeClient, kubeToken, namespace, serviceName, rule, service, cfg, gateways); err != nil {
 		return err
 	}
 	strategyType := resolveDeployStrategyTypeForServicePayload(service)
@@ -178,7 +209,13 @@ func HandleRuleDelete(ctx context.Context, client *http.Client, cfg models.Confi
 		if err != nil {
 			return err
 		}
-		return platformkube.DeleteResource(ctx, kubeClient, kubeToken, "security.istio.io/v1beta1", "AuthorizationPolicy", namespace, policyName)
+		if err := platformkube.DeleteResource(ctx, kubeClient, kubeToken, "security.istio.io/v1beta1", "AuthorizationPolicy", namespace, policyName); err != nil {
+			return err
+		}
+		if err := cleanupJWTAccessResources(ctx, kubeClient, kubeToken, namespace, serviceName, op.Resource); err != nil {
+			return err
+		}
+		return cleanupEdgeResources(ctx, kubeClient, kubeToken, namespace, serviceName, op.Resource, cfg)
 	}
 
 	vsName := RuleVirtualServiceName(serviceName, op.Resource)
@@ -191,7 +228,39 @@ func HandleRuleDelete(ctx context.Context, client *http.Client, cfg models.Confi
 	if err != nil {
 		return err
 	}
-	return platformkube.DeleteResource(ctx, kubeClient, kubeToken, "networking.istio.io/v1beta1", "VirtualService", namespace, vsName)
+	if err := platformkube.DeleteResource(ctx, kubeClient, kubeToken, "networking.istio.io/v1beta1", "VirtualService", namespace, vsName); err != nil {
+		return err
+	}
+	if err := cleanupJWTAccessResources(ctx, kubeClient, kubeToken, namespace, serviceName, op.Resource); err != nil {
+		return err
+	}
+	return cleanupEdgeResources(ctx, kubeClient, kubeToken, namespace, serviceName, op.Resource, cfg)
+}
+
+func reconcileJWTAccessResources(
+	ctx context.Context,
+	kubeClient *http.Client,
+	kubeToken, namespace, serviceName string,
+	rule models.RulePayload,
+	service models.ServicePayload,
+) error {
+	if RuleAuthMode(rule) != "jwt" {
+		return cleanupJWTAccessResources(ctx, kubeClient, kubeToken, namespace, serviceName, rule.ID)
+	}
+	if strings.TrimSpace(rule.Policy.JWTIssuer) == "" || strings.TrimSpace(rule.Policy.JWKSURI) == "" {
+		return errors.New("JWT access policy requires issuer and JWKS URL")
+	}
+	if err := platformkube.ApplyResource(ctx, kubeClient, kubeToken, buildJWTRequestAuthentication(rule, service, serviceName, namespace)); err != nil {
+		return err
+	}
+	return platformkube.ApplyResource(ctx, kubeClient, kubeToken, buildJWTAuthorizationPolicy(rule, service, serviceName, namespace))
+}
+
+func cleanupJWTAccessResources(ctx context.Context, kubeClient *http.Client, kubeToken, namespace, serviceName, ruleID string) error {
+	if err := platformkube.DeleteResource(ctx, kubeClient, kubeToken, "security.istio.io/v1beta1", "RequestAuthentication", namespace, BuildJWTAuthenticationName(serviceName, ruleID)); err != nil {
+		return err
+	}
+	return platformkube.DeleteResource(ctx, kubeClient, kubeToken, "security.istio.io/v1beta1", "AuthorizationPolicy", namespace, BuildJWTAuthorizationPolicyName(serviceName, ruleID))
 }
 
 func FetchRule(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager, ruleID string) (models.RulePayload, error) {

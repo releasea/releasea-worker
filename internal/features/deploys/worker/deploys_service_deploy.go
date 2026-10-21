@@ -74,7 +74,21 @@ func HandleServiceDeploy(ctx context.Context, client *http.Client, cfg models.Co
 		return err
 	}
 
-	reportStrategy(deployStatusCompleted, "Version active for user traffic", nil)
+	summary := "New version is fully live"
+	if strategyType == "canary" {
+		summary = "Canary is serving its share of traffic"
+	}
+	if strategyType == "blue-green" {
+		activeSlot, candidateSlot := ResolveBlueGreenSlots(contextData.Service.DeploymentStrategy.BlueGreenPrimary)
+		summary = fmt.Sprintf("%s is ready. Traffic stays on %s.", blueGreenSlotTitle(candidateSlot), activeSlot)
+		reportStrategy(deployStatusCompleted, summary, map[string]interface{}{
+			"switchPending": true,
+			"activeSlot":    activeSlot,
+			"candidateSlot": candidateSlot,
+		})
+		return nil
+	}
+	reportStrategy(deployStatusCompleted, summary, nil)
 	return nil
 }
 
@@ -109,6 +123,24 @@ func resolveDeploySourceType(service models.ServiceConfig) string {
 		return "registry"
 	}
 	return ""
+}
+
+func shouldReusePromotedImage(payload map[string]interface{}, image string) bool {
+	if strings.TrimSpace(image) == "" || payload == nil {
+		return false
+	}
+	value, ok := payload["reuseImage"]
+	if !ok || value == nil {
+		return false
+	}
+	switch typed := value.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true")
+	default:
+		return false
+	}
 }
 
 func resolveTargetCommit(payload map[string]interface{}) string {
@@ -169,6 +201,13 @@ func prepareServiceArtifact(
 	}
 
 	sourceType := resolveDeploySourceType(contextData.Service)
+	if shouldReusePromotedImage(payload, contextData.Service.DockerImage) {
+		reportStrategy(deployStatusPreparing, "Reusing the release built in the previous environment", map[string]interface{}{"image": contextData.Service.DockerImage})
+		if logger != nil {
+			logger.Logf(ctx, "reusing promoted image %s", contextData.Service.DockerImage)
+		}
+		return nil
+	}
 	switch sourceType {
 	case "git":
 		if contextData.Service.RepoURL == "" {
@@ -326,7 +365,20 @@ func promoteDeployStrategy(
 		if err := promoteRollingTraffic(ctx, cfg, environment, serviceName, logger); err != nil {
 			return err
 		}
-		cleanupStrategyShadowsBestEffort(ctx, cfg, environment, serviceName, "rolling", logger)
+		kubeHTTP, kubeToken, err := platformkube.KubeClient()
+		if err != nil {
+			return err
+		}
+		namespace := shared.ResolveNamespace(cfg, environment)
+		if err := waitForDeploymentRollout(ctx, kubeHTTP, kubeToken, namespace, serviceName); err != nil {
+			return err
+		}
+		if err := cleanupUnusedStrategyWorkloads(ctx, kubeHTTP, kubeToken, namespace, serviceName, "rolling", logger); err != nil {
+			return err
+		}
+		if err := waitForRetiredWorkloads(ctx, kubeHTTP, kubeToken, namespace, cleanupCandidatesForStrategy(serviceName, "rolling")); err != nil {
+			return err
+		}
 	case "canary":
 		reportStrategy(deployStatusProgressing, "Gradually increasing traffic exposure", map[string]interface{}{
 			"exposurePercent": resolveCanaryExposurePercent(contextData.Service),
@@ -334,25 +386,10 @@ func promoteDeployStrategy(
 		reportStrategy(deployStatusPromoting, "Promoting version to active traffic", nil)
 	case "blue-green":
 		activeSlot, candidateSlot := ResolveBlueGreenSlots(contextData.Service.DeploymentStrategy.BlueGreenPrimary)
-		reportStrategy(deployStatusPromoting, "Switching active environment", map[string]interface{}{
-			"activeSlot":    activeSlot,
-			"candidateSlot": candidateSlot,
-		})
-		promotedSlot, err := promoteBlueGreen(
-			ctx,
-			client,
-			cfg,
-			tokens,
-			contextData.Service,
-			op.Resource,
-			environment,
-			serviceName,
-			logger,
-		)
-		if err != nil {
-			return err
+		if logger != nil {
+			logger.Logf(ctx, "blue-green candidate %s is staged. Traffic stays on %s until an operator switches.", candidateSlot, activeSlot)
+			logger.Flush(ctx)
 		}
-		contextData.Service.DeploymentStrategy.BlueGreenPrimary = promotedSlot
 	}
 	return nil
 }

@@ -50,14 +50,23 @@ func applyDeploymentPolicy(resource map[string]interface{}, service ServiceConfi
 }
 
 func setDeploymentRollingStrategy(resource map[string]interface{}) {
+	setRollingStrategy(resource, "25%", "25%")
+}
+
+func setZeroDowntimeRollingStrategy(resource map[string]interface{}) {
+	setRollingStrategy(resource, "25%", 0)
+}
+
+func setRollingStrategy(resource map[string]interface{}, maxSurge, maxUnavailable interface{}) {
 	spec := shared.MapValue(resource["spec"])
 	spec["strategy"] = map[string]interface{}{
 		"type": "RollingUpdate",
 		"rollingUpdate": map[string]interface{}{
-			"maxSurge":       "25%",
-			"maxUnavailable": "25%",
+			"maxSurge":       maxSurge,
+			"maxUnavailable": maxUnavailable,
 		},
 	}
+	spec["minReadySeconds"] = 5
 	resource["spec"] = spec
 }
 

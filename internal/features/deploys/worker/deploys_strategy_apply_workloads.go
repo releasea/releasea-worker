@@ -129,7 +129,7 @@ func applyCanaryWorkloadResources(
 			}
 			stableDeployment := cloneResource(baseDeployment, deps)
 			RetargetDeployment(stableDeployment, serviceName, serviceName, resolveDesiredReplicas(service))
-			setDeploymentRollingStrategy(stableDeployment)
+			setZeroDowntimeRollingStrategy(stableDeployment)
 			if err := deps.ApplyResourceFn(ctx, client, token, stableDeployment); err != nil {
 				return err
 			}
@@ -148,7 +148,7 @@ func applyCanaryWorkloadResources(
 	canaryReplicas := resolveCanaryReplicas(service)
 	canaryDeployment := cloneResource(baseDeployment, deps)
 	RetargetDeployment(canaryDeployment, canaryName, canaryName, canaryReplicas)
-	setDeploymentRollingStrategy(canaryDeployment)
+	setZeroDowntimeRollingStrategy(canaryDeployment)
 	if err := deps.ApplyResourceFn(ctx, client, token, canaryDeployment); err != nil {
 		return err
 	}
@@ -242,7 +242,7 @@ func applyBlueGreenWorkloadResources(
 		activeDeployment := cloneResource(activeDeploymentSource, deps)
 		sanitizeResourceForApply(activeDeployment)
 		RetargetDeployment(activeDeployment, activeName, activeName, resolveDesiredReplicas(service))
-		setDeploymentRollingStrategy(activeDeployment)
+		setZeroDowntimeRollingStrategy(activeDeployment)
 		if err := deps.ApplyResourceFn(ctx, client, token, activeDeployment); err != nil {
 			return err
 		}
@@ -258,7 +258,7 @@ func applyBlueGreenWorkloadResources(
 	candidateDeployment := cloneResource(baseDeployment, deps)
 	sanitizeResourceForApply(candidateDeployment)
 	RetargetDeployment(candidateDeployment, candidateName, candidateName, resolveDesiredReplicas(service))
-	setDeploymentRollingStrategy(candidateDeployment)
+	setZeroDowntimeRollingStrategy(candidateDeployment)
 	if err := deps.ApplyResourceFn(ctx, client, token, candidateDeployment); err != nil {
 		return err
 	}
