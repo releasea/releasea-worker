@@ -99,12 +99,7 @@ exit 0
 			logUpdates++
 			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodGet && r.URL.Path == "/apis/apps/v1/namespaces/"+namespace+"/deployments/api":
-			_ = json.NewEncoder(w).Encode(models.DeploymentInfo{
-				Status: models.DeploymentStatus{
-					AvailableReplicas: 1,
-					Replicas:          1,
-				},
-			})
+			_ = json.NewEncoder(w).Encode(settledDeployment(1))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/namespaces/"+namespace+"/pods":
 			_ = json.NewEncoder(w).Encode(models.PodList{Items: []models.PodInfo{}})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/namespaces/"+namespace+"/services/api":

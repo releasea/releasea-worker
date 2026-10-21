@@ -22,14 +22,15 @@ type operationExecutor func(ctx context.Context, client *http.Client, cfg models
 var ErrUnsupportedOperationType = errors.New("unsupported operation type")
 
 var defaultOperationExecutors = map[string]operationExecutor{
-	models.OperationTypeServiceDeploy:        executeServiceDeploy,
-	models.OperationTypeServiceScale:         executeServiceScale,
-	models.OperationTypeServicePromoteCanary: deploymodule.HandlePromoteCanary,
-	models.OperationTypeServiceDelete:        deploymodule.HandleServiceDelete,
-	models.OperationTypeRuleDeploy:           rulesmodule.HandleRuleDeploy,
-	models.OperationTypeRulePublish:          rulesmodule.HandleRuleDeploy,
-	models.OperationTypeRuleDelete:           rulesmodule.HandleRuleDelete,
-	models.OperationTypeWorkerRestart:        executeWorkerRestart,
+	models.OperationTypeServiceDeploy:          executeServiceDeploy,
+	models.OperationTypeServiceScale:           executeServiceScale,
+	models.OperationTypeServicePromoteCanary:   deploymodule.HandlePromoteCanary,
+	models.OperationTypeServiceSwitchBlueGreen: deploymodule.HandleSwitchBlueGreen,
+	models.OperationTypeServiceDelete:          deploymodule.HandleServiceDelete,
+	models.OperationTypeRuleDeploy:             rulesmodule.HandleRuleDeploy,
+	models.OperationTypeRulePublish:            rulesmodule.HandleRuleDeploy,
+	models.OperationTypeRuleDelete:             rulesmodule.HandleRuleDelete,
+	models.OperationTypeWorkerRestart:          executeWorkerRestart,
 }
 
 func executeOperation(ctx context.Context, client *http.Client, cfg models.Config, tokens *platformauth.TokenManager, op models.OperationPayload) error {

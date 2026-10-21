@@ -195,6 +195,181 @@ func resolveReadinessNamespace(cfg models.Config, environment, namespace string)
 	return shared.ResolveNamespace(cfg, environment)
 }
 
+func settledDeployment(desired int) models.DeploymentInfo {
+	if desired < 1 {
+		desired = 1
+	}
+	replicas := desired
+	deployment := models.DeploymentInfo{}
+	deployment.Metadata.Generation = 1
+	deployment.Spec.Replicas = &replicas
+	deployment.Status = models.DeploymentStatus{
+		ObservedGeneration: 1,
+		Replicas:           desired,
+		UpdatedReplicas:    desired,
+		ReadyReplicas:      desired,
+		AvailableReplicas:  desired,
+	}
+	return deployment
+}
+
+func rolloutPendingReason(name string, deploy models.DeploymentInfo) string {
+	desired := deploy.Status.Replicas
+	if deploy.Spec.Replicas != nil && *deploy.Spec.Replicas > 0 {
+		desired = *deploy.Spec.Replicas
+	}
+	if desired < 1 {
+		desired = 1
+	}
+	if deploy.Metadata.Generation > 0 && deploy.Status.ObservedGeneration < deploy.Metadata.Generation {
+		return fmt.Sprintf("%s rollout has not observed the new spec yet", name)
+	}
+	if deploy.Status.UpdatedReplicas < desired {
+		return fmt.Sprintf("%s is still updating (%d/%d)", name, deploy.Status.UpdatedReplicas, desired)
+	}
+	if deploy.Status.ReadyReplicas < desired || deploy.Status.AvailableReplicas < desired {
+		return fmt.Sprintf("%s is not fully available yet", name)
+	}
+	if deploy.Status.Replicas > desired || deploy.Status.UnavailableReplicas > 0 {
+		return fmt.Sprintf("%s still has previous pods shutting down", name)
+	}
+	return ""
+}
+
+func waitForDeploymentRollout(
+	ctx context.Context,
+	client *http.Client,
+	token string,
+	namespace string,
+	name string,
+) error {
+	return waitForDeploymentRollouts(ctx, client, token, namespace, []string{name})
+}
+
+func waitForDeploymentRollouts(
+	ctx context.Context,
+	client *http.Client,
+	token string,
+	namespace string,
+	names []string,
+) error {
+	timeoutSeconds, pollSeconds := resolveReadinessPollingConfig()
+	deadline := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
+	var lastPending string
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		pending := make([]string, 0)
+		for _, name := range names {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			deploy, err := fetchDeployment(ctx, client, token, namespace, name)
+			if err != nil {
+				if err == errDeploymentNotFound {
+					pending = append(pending, fmt.Sprintf("%s not found", name))
+					continue
+				}
+				return err
+			}
+			if reason := rolloutPendingReason(name, deploy); reason != "" {
+				pending = append(pending, reason)
+			}
+		}
+		if len(pending) == 0 {
+			return nil
+		}
+		summary := strings.Join(pending, "; ")
+		if summary != lastPending {
+			log.Printf("[worker] waiting for full rollout: %s", summary)
+			lastPending = summary
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout waiting for the new version to be fully live: %s", summary)
+		}
+		timer := time.NewTimer(time.Duration(pollSeconds) * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func waitForRetiredWorkloads(
+	ctx context.Context,
+	client *http.Client,
+	token string,
+	namespace string,
+	names []string,
+) error {
+	timeoutSeconds, pollSeconds := resolveReadinessPollingConfig()
+	deadline := time.Now().Add(time.Duration(timeoutSeconds) * time.Second)
+	var lastPending string
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		pending := make([]string, 0)
+		for _, name := range names {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			_, err := fetchDeployment(ctx, client, token, namespace, name)
+			if err == nil {
+				pending = append(pending, fmt.Sprintf("%s deployment still exists", name))
+			} else if err != errDeploymentNotFound {
+				return err
+			}
+			pods, podErr := fetchPodsByLabel(ctx, client, token, namespace, "app="+name)
+			if podErr != nil {
+				return podErr
+			}
+			if livePodCount(pods) > 0 {
+				pending = append(pending, fmt.Sprintf("%s pods are still running", name))
+			}
+		}
+		if len(pending) == 0 {
+			return nil
+		}
+		summary := strings.Join(pending, "; ")
+		if summary != lastPending {
+			log.Printf("[worker] waiting for previous workloads to finish: %s", summary)
+			lastPending = summary
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timeout waiting for previous deployments to finish: %s", summary)
+		}
+		timer := time.NewTimer(time.Duration(pollSeconds) * time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+func livePodCount(pods models.PodList) int {
+	count := 0
+	for _, pod := range pods.Items {
+		phase := strings.ToLower(strings.TrimSpace(pod.Status.Phase))
+		if phase == "succeeded" || phase == "failed" {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
 func collectPendingWorkloadReadiness(
 	ctx context.Context,
 	kubeClient *http.Client,

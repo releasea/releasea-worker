@@ -52,18 +52,7 @@ func buildRuleVirtualService(rule models.RulePayload, service models.ServicePayl
 		}
 		spec["tcp"] = []interface{}{tcpRoute}
 	} else {
-		httpRoute := map[string]interface{}{}
-		if matches := buildRuleHTTPMatches(rule.Paths, rule.Methods); len(matches) > 0 {
-			httpRoute["match"] = matches
-		}
-		if isDeny {
-			httpRoute["directResponse"] = map[string]interface{}{
-				"status": 403,
-			}
-		} else {
-			httpRoute["route"] = destinations
-		}
-		spec["http"] = []interface{}{httpRoute}
+		spec["http"] = buildRuleHTTPRoutes(rule, destinations, isDeny)
 	}
 
 	return map[string]interface{}{
@@ -183,11 +172,12 @@ func buildSecurityResourceName(serviceName, ruleID, suffix string) string {
 }
 
 func RuleAuthMode(rule models.RulePayload) string {
-	mode := strings.ToLower(strings.TrimSpace(rule.Policy.AuthMode))
-	if mode == "jwt" {
-		return mode
+	switch strings.ToLower(strings.TrimSpace(rule.Policy.AuthMode)) {
+	case "jwt", "apikey", "mtls":
+		return strings.ToLower(strings.TrimSpace(rule.Policy.AuthMode))
+	default:
+		return "public"
 	}
-	return "public"
 }
 
 func buildJWTRequestAuthentication(rule models.RulePayload, service models.ServicePayload, serviceName, namespace string) map[string]interface{} {
@@ -329,6 +319,44 @@ func normalizePolicyMethods(methods []string) []string {
 	return shared.UniqueStrings(out)
 }
 
+func buildRuleHTTPRoutes(rule models.RulePayload, destinations []interface{}, isDeny bool) []interface{} {
+	matches := buildRuleHTTPMatches(rule.Paths, rule.Methods)
+	primary := map[string]interface{}{
+		"name": EdgeRouteName(rule.ID),
+	}
+	if isDeny {
+		if len(matches) > 0 {
+			primary["match"] = matches
+		}
+		primary["directResponse"] = map[string]interface{}{"status": 403}
+		applyEdgeHTTPPolicy(primary, rule)
+		return []interface{}{primary}
+	}
+	primary["route"] = destinations
+	if positive, gated := edgePositiveMatches(rule); gated {
+		if len(positive) > 0 {
+			primary["match"] = positive
+		}
+		applyEdgeHTTPPolicy(primary, rule)
+		fallback := map[string]interface{}{
+			"directResponse": map[string]interface{}{"status": 401},
+		}
+		if len(matches) > 0 {
+			fallback["match"] = matches
+		}
+		applyEdgeHTTPPolicy(fallback, rule)
+		if len(positive) == 0 {
+			return []interface{}{fallback}
+		}
+		return []interface{}{primary, fallback}
+	}
+	if len(matches) > 0 {
+		primary["match"] = matches
+	}
+	applyEdgeHTTPPolicy(primary, rule)
+	return []interface{}{primary}
+}
+
 func buildRuleHTTPMatches(paths []string, methods []string) []interface{} {
 	if len(paths) == 0 && len(methods) == 0 {
 		return nil
@@ -375,16 +403,35 @@ func normalizeRulePath(value string) string {
 	return path
 }
 
+func environmentHostLabel(namespace string) string {
+	switch {
+	case strings.Contains(namespace, "production"):
+		return "prod"
+	case strings.Contains(namespace, "staging"):
+		return "staging"
+	default:
+		return "dev"
+	}
+}
+
+func environmentQualifiedHost(serviceName, namespace, domain string) string {
+	label := environmentHostLabel(namespace)
+	if label == "" {
+		return fmt.Sprintf("%s.%s", serviceName, domain)
+	}
+	return fmt.Sprintf("%s-%s.%s", serviceName, label, domain)
+}
+
 func resolveRuleHosts(hosts []string, gateways []string, serviceName, namespace string, cfg models.Config) []string {
 	out := shared.UniqueStrings(hosts)
 	if gatewayMatches(gateways, cfg.InternalGateway) && cfg.InternalDomain != "" {
 		if !shared.HasHostSuffix(out, cfg.InternalDomain) {
-			out = append(out, fmt.Sprintf("%s.%s", serviceName, cfg.InternalDomain))
+			out = append(out, environmentQualifiedHost(serviceName, namespace, cfg.InternalDomain))
 		}
 	}
 	if gatewayMatches(gateways, cfg.ExternalGateway) && cfg.ExternalDomain != "" {
 		if !shared.HasHostSuffix(out, cfg.ExternalDomain) {
-			out = append(out, fmt.Sprintf("%s.%s", serviceName, cfg.ExternalDomain))
+			out = append(out, environmentQualifiedHost(serviceName, namespace, cfg.ExternalDomain))
 		}
 	}
 	if len(out) == 0 {

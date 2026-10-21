@@ -191,6 +191,7 @@ func TestReconcileStrategyResourcesCanaryWithRenderedResources(t *testing.T) {
 func TestHandlePromoteCanaryWithKubeSimulation(t *testing.T) {
 	namespace := "releasea-apps-production"
 	var serviceCreated bool
+	var canaryDeleted bool
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
@@ -207,6 +208,10 @@ func TestHandlePromoteCanaryWithKubeSimulation(t *testing.T) {
 				},
 			})
 		case r.Method == http.MethodGet && path == "/apis/apps/v1/namespaces/"+namespace+"/deployments/api-canary":
+			if canaryDeleted {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"apiVersion": "apps/v1",
 				"kind":       "Deployment",
@@ -240,12 +245,10 @@ func TestHandlePromoteCanaryWithKubeSimulation(t *testing.T) {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
-			_ = json.NewEncoder(w).Encode(models.DeploymentInfo{
-				Status: models.DeploymentStatus{
-					AvailableReplicas: 1,
-					Replicas:          1,
-				},
-			})
+			_ = json.NewEncoder(w).Encode(settledDeployment(1))
+		case r.Method == http.MethodDelete && strings.Contains(path, "/deployments/api-canary"):
+			canaryDeleted = true
+			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodGet && path == "/api/v1/namespaces/"+namespace+"/services/api":
 			if !serviceCreated {
 				w.WriteHeader(http.StatusNotFound)

@@ -138,12 +138,7 @@ func TestPromoteBlueGreenSuccess(t *testing.T) {
 			canonicalSelector = selector["app"].(string)
 			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodGet && r.URL.Path == "/apis/apps/v1/namespaces/"+namespace+"/deployments/api-green":
-			_ = json.NewEncoder(w).Encode(models.DeploymentInfo{
-				Status: models.DeploymentStatus{
-					AvailableReplicas: 1,
-					Replicas:          1,
-				},
-			})
+			_ = json.NewEncoder(w).Encode(settledDeployment(1))
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/namespaces/"+namespace+"/pods":
 			_ = json.NewEncoder(w).Encode(models.PodList{Items: []models.PodInfo{}})
 		case r.Method == http.MethodDelete:
@@ -221,6 +216,10 @@ func TestPromoteBlueGreenRevertsOnSlotUpdateFailure(t *testing.T) {
 			selector := spec["selector"].(map[string]interface{})
 			canonicalSelector = selector["app"].(string)
 			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && r.URL.Path == "/apis/apps/v1/namespaces/"+namespace+"/deployments/api-green":
+			_ = json.NewEncoder(w).Encode(settledDeployment(1))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/namespaces/"+namespace+"/pods":
+			_ = json.NewEncoder(w).Encode(models.PodList{Items: []models.PodInfo{}})
 		default:
 			http.NotFound(w, r)
 		}
