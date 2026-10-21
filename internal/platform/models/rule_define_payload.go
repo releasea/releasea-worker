@@ -1,7 +1,11 @@
 package models
 
 type RulePolicyPayload struct {
-	Action string `json:"action"`
+	Action    string   `json:"action"`
+	AuthMode  string   `json:"authMode"`
+	JWTIssuer string   `json:"jwtIssuer"`
+	JWKSURI   string   `json:"jwksUri"`
+	Audiences []string `json:"audiences"`
 }
 
 type RulePayload struct {

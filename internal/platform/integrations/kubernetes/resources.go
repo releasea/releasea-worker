@@ -297,6 +297,9 @@ func ResourceURLs(apiVersion, kind, namespace, name string) (string, string, err
 	case "AuthorizationPolicy":
 		base := fmt.Sprintf("%s/apis/security.istio.io/v1beta1/namespaces/%s/authorizationpolicies", baseURL, namespace)
 		return base + "/" + name, base, nil
+	case "RequestAuthentication":
+		base := fmt.Sprintf("%s/apis/security.istio.io/v1beta1/namespaces/%s/requestauthentications", baseURL, namespace)
+		return base + "/" + name, base, nil
 	default:
 		return "", "", fmt.Errorf("unsupported kind %s (apiVersion %s)", kind, apiVersion)
 	}

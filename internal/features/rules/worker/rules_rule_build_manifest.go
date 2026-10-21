@@ -158,6 +158,97 @@ func BuildDenyPolicyName(serviceName, ruleName, ruleID string) string {
 	return strings.Trim(name[:63], "-")
 }
 
+func BuildJWTAuthenticationName(serviceName, ruleID string) string {
+	return buildSecurityResourceName(serviceName, ruleID, "jwt")
+}
+
+func BuildJWTAuthorizationPolicyName(serviceName, ruleID string) string {
+	return buildSecurityResourceName(serviceName, ruleID, "require-auth")
+}
+
+func buildSecurityResourceName(serviceName, ruleID, suffix string) string {
+	servicePart := shared.ToKubeName(serviceName)
+	if servicePart == "" {
+		servicePart = "service"
+	}
+	rulePart := shared.ToKubeName(ruleID)
+	if rulePart == "" {
+		rulePart = "rule"
+	}
+	name := fmt.Sprintf("%s-%s-%s", servicePart, rulePart, suffix)
+	if len(name) <= 63 {
+		return name
+	}
+	return strings.Trim(name[:63], "-")
+}
+
+func RuleAuthMode(rule models.RulePayload) string {
+	mode := strings.ToLower(strings.TrimSpace(rule.Policy.AuthMode))
+	if mode == "jwt" {
+		return mode
+	}
+	return "public"
+}
+
+func buildJWTRequestAuthentication(rule models.RulePayload, service models.ServicePayload, serviceName, namespace string) map[string]interface{} {
+	jwtRule := map[string]interface{}{
+		"issuer":  strings.TrimSpace(rule.Policy.JWTIssuer),
+		"jwksUri": strings.TrimSpace(rule.Policy.JWKSURI),
+	}
+	if audiences := shared.UniqueStrings(rule.Policy.Audiences); len(audiences) > 0 {
+		jwtRule["audiences"] = audiences
+	}
+	return map[string]interface{}{
+		"apiVersion": "security.istio.io/v1beta1",
+		"kind":       "RequestAuthentication",
+		"metadata": map[string]interface{}{
+			"name":      BuildJWTAuthenticationName(serviceName, rule.ID),
+			"namespace": namespace,
+			"labels": map[string]interface{}{
+				"app": serviceName, "releasea.rule": rule.ID, "releasea.service": service.ID,
+			},
+		},
+		"spec": map[string]interface{}{
+			"selector": map[string]interface{}{"matchLabels": map[string]interface{}{"app": serviceName}},
+			"jwtRules": []interface{}{jwtRule},
+		},
+	}
+}
+
+func buildJWTAuthorizationPolicy(rule models.RulePayload, service models.ServicePayload, serviceName, namespace string) map[string]interface{} {
+	operation := map[string]interface{}{}
+	if methods := normalizePolicyMethods(rule.Methods); len(methods) > 0 {
+		operation["methods"] = methods
+	}
+	if paths := expandDenyPolicyPaths(rule.Paths); len(paths) > 0 {
+		operation["paths"] = paths
+	}
+	entry := map[string]interface{}{
+		"from": []interface{}{map[string]interface{}{
+			"source": map[string]interface{}{"notRequestPrincipals": []string{"*"}},
+		}},
+	}
+	if len(operation) > 0 {
+		entry["to"] = []interface{}{map[string]interface{}{"operation": operation}}
+	}
+	return map[string]interface{}{
+		"apiVersion": "security.istio.io/v1beta1",
+		"kind":       "AuthorizationPolicy",
+		"metadata": map[string]interface{}{
+			"name":      BuildJWTAuthorizationPolicyName(serviceName, rule.ID),
+			"namespace": namespace,
+			"labels": map[string]interface{}{
+				"app": serviceName, "releasea.rule": rule.ID, "releasea.service": service.ID,
+			},
+		},
+		"spec": map[string]interface{}{
+			"selector": map[string]interface{}{"matchLabels": map[string]interface{}{"app": serviceName}},
+			"action":   "DENY",
+			"rules":    []interface{}{entry},
+		},
+	}
+}
+
 func buildDenyAuthorizationPolicy(rule models.RulePayload, service models.ServicePayload, serviceName, namespace, policyName string) map[string]interface{} {
 	paths := expandDenyPolicyPaths(rule.Paths)
 	methods := normalizePolicyMethods(rule.Methods)
