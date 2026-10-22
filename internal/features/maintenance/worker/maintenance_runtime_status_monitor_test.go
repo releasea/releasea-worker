@@ -105,6 +105,32 @@ func TestResolvePauseResumeWindow(t *testing.T) {
 	}
 }
 
+func TestIdleObservationSkipsAFreshRevision(t *testing.T) {
+	now := time.Date(2026, 10, 22, 1, 9, 9, 0, time.UTC)
+	fresh := models.DeploymentInfo{}
+	fresh.Metadata.CreationTimestamp = now.Add(-4 * time.Minute)
+	fresh.Metadata.Annotations = map[string]string{
+		deployRevisionAnnotation: now.Add(-time.Second).Format(time.RFC3339Nano),
+	}
+	if idleObservationComplete(fresh, now, time.Hour) {
+		t.Fatalf("expected a revision younger than the idle window to stay running")
+	}
+
+	settled := models.DeploymentInfo{}
+	settled.Metadata.CreationTimestamp = now.Add(-2 * time.Hour)
+	settled.Metadata.Annotations = map[string]string{
+		deployRevisionAnnotation: now.Add(-90 * time.Minute).Format(time.RFC3339),
+	}
+	if !idleObservationComplete(settled, now, time.Hour) {
+		t.Fatalf("expected a revision older than the idle window to be eligible for pause")
+	}
+
+	unknown := models.DeploymentInfo{}
+	if !idleObservationComplete(unknown, now, time.Hour) {
+		t.Fatalf("expected a deployment without a revision time to keep the existing pause behavior")
+	}
+}
+
 func TestFormatIdleWindowAndReason(t *testing.T) {
 	if got := formatIdleWindow(0); got != "1 hour" {
 		t.Fatalf("expected default 1 hour, got %q", got)
