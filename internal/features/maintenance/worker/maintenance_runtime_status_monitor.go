@@ -155,6 +155,10 @@ func handlePauseWhenIdle(
 		return true, "unknown", "Unable to evaluate idle state"
 	}
 
+	if !idleObservationComplete(deploy, time.Now().UTC(), idleWindow) {
+		return false, "", ""
+	}
+
 	currentReplicas := deploy.Status.Replicas
 	if currentReplicas < 0 {
 		currentReplicas = 0
@@ -362,6 +366,43 @@ func resolvePauseResumeWindow(idleWindow time.Duration) time.Duration {
 		return idleWindow
 	}
 	return window
+}
+
+const deployRevisionAnnotation = "releasea.io/deploy-revision"
+
+func idleObservationComplete(deploy models.DeploymentInfo, now time.Time, idleWindow time.Duration) bool {
+	if idleWindow <= 0 {
+		return true
+	}
+	revisedAt, ok := workloadRevisionTime(deploy)
+	if !ok {
+		return true
+	}
+	return !revisedAt.After(now.Add(-idleWindow))
+}
+
+func workloadRevisionTime(deploy models.DeploymentInfo) (time.Time, bool) {
+	var latest time.Time
+	found := false
+	if !deploy.Metadata.CreationTimestamp.IsZero() {
+		latest = deploy.Metadata.CreationTimestamp.UTC()
+		found = true
+	}
+	raw := strings.TrimSpace(deploy.Metadata.Annotations[deployRevisionAnnotation])
+	if raw != "" {
+		parsed, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			parsed, err = time.Parse(time.RFC3339, raw)
+		}
+		if err == nil {
+			parsed = parsed.UTC()
+			if !found || parsed.After(latest) {
+				latest = parsed
+				found = true
+			}
+		}
+	}
+	return latest, found
 }
 
 func pauseIdleReason(idleWindow time.Duration) string {

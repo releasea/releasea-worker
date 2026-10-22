@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 type DeploymentStatus struct {
 	ObservedGeneration  int `json:"observedGeneration"`
 	Replicas            int `json:"replicas"`
@@ -17,7 +19,9 @@ type DeploymentStatus struct {
 
 type DeploymentInfo struct {
 	Metadata struct {
-		Generation int `json:"generation"`
+		Generation        int               `json:"generation"`
+		CreationTimestamp time.Time         `json:"creationTimestamp,omitempty"`
+		Annotations       map[string]string `json:"annotations,omitempty"`
 	} `json:"metadata"`
 	Spec struct {
 		Replicas *int `json:"replicas"`
